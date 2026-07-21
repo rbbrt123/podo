@@ -1,5 +1,6 @@
 from anthropic import Anthropic
 from elevenlabs.client import ElevenLabs
+from pydub import AudioSegment
 from dotenv import load_dotenv
 import os
 
@@ -11,11 +12,11 @@ elevenlabs_client = ElevenLabs(
     api_key=os.getenv("ELEVENLABS_API_KEY")
 )
 
-TOPIC = "The impact of AI on the world"
+TOPIC = "Will programmers get replaced by AI?"
 
 PERSONAS = {
     "Mira" : "You are Mira, the curious host of a podcast. You ask clarifying questions and keep the conversation moving.",
-    "Dr. Chen": "You are Dr. Chen, an important voice in the AI community who explains concepts clearly using everyday analogies.",
+    "Dr. Chen": "You are Dr. Chen, an important voice in the AI community who explains concepts clearly and has novel insights.",
 }
 
 VOICE_IDS = {
@@ -24,6 +25,7 @@ VOICE_IDS = {
 }
 
 transcript = []
+audio_filenames = []
 
 def format_transcript():
     if not transcript:
@@ -78,4 +80,15 @@ for i in range(6):
     safe_name = current_speaker.replace(" ", "_") #just replacing spaces with _ for the formatting of the file name
     filename = f"turn_{i}_{safe_name}.mp3"
     text_to_speech(line, VOICE_IDS[current_speaker], filename)
+    audio_filenames.append(filename)
     print(f"Saved audio to {filename}\n")
+
+pause = AudioSegment.silent(duration=500)
+episode = AudioSegment.empty()
+
+for filename in audio_filenames:
+    clip = AudioSegment.from_mp3(filename)
+    episode = episode + clip + pause
+
+episode.export("episode.mp3", format="mp3")
+print("Saved full episode to episode.mp3")

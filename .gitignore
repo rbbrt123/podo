@@ -11,3 +11,6 @@ wheels/
 
 # Secrets / environment variables
 .env
+
+# Generated audio
+*.mp3
