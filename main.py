@@ -12,7 +12,7 @@ elevenlabs_client = ElevenLabs(
     api_key=os.getenv("ELEVENLABS_API_KEY")
 )
 
-TOPIC = "Will programmers get replaced by AI?"
+TOPIC = "Is selling your voice to an AI company ethical?"
 
 PERSONAS = {
     "Mira" : "You are Mira, the curious host of a podcast. You ask clarifying questions and keep the conversation moving.",
@@ -92,3 +92,7 @@ for filename in audio_filenames:
 
 episode.export("episode.mp3", format="mp3")
 print("Saved full episode to episode.mp3")
+
+for filename in audio_filenames:
+    os.remove(filename)
+print("Removed individual turn files")
