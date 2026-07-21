@@ -1,14 +1,26 @@
 from anthropic import Anthropic
+from elevenlabs.client import ElevenLabs
 from dotenv import load_dotenv
+import os
 
 load_dotenv()
-client = Anthropic()
 
-TOPIC = "Why the sky is blue"
+
+anthropic_client = Anthropic()
+elevenlabs_client = ElevenLabs(
+    api_key=os.getenv("ELEVENLABS_API_KEY")
+)
+
+TOPIC = "The impact of AI on the world"
 
 PERSONAS = {
     "Mira" : "You are Mira, the curious host of a podcast. You ask clarifying questions and keep the conversation moving.",
-    "Dr. Chen": "You are Dr. Chen, a physicist who explains concepts clearly using everyday analogies.",
+    "Dr. Chen": "You are Dr. Chen, an important voice in the AI community who explains concepts clearly using everyday analogies.",
+}
+
+VOICE_IDS = {
+    "Mira": "aMSt68OGf4xUZAnLpTU8",
+    "Dr. Chen": "vBKc2FfBKJfcZNyEt1n6",
 }
 
 transcript = []
@@ -30,7 +42,7 @@ def generate_turn(speaker):
 
     conversation_so_far = format_transcript() #all the outputs so far formatted in a nice way
 
-    response = client.messages.create(
+    response = anthropic_client.messages.create(
         model="claude-sonnet-5",
         max_tokens=200,
         system=system_prompt,
@@ -42,6 +54,19 @@ def generate_turn(speaker):
     text = "".join(block.text for block in response.content if block.type == "text")
     return text.strip()
 
+
+def text_to_speech(text, voice_id, filename):
+    audio_chunks = elevenlabs_client.text_to_speech.convert(
+        text=text,
+        voice_id=voice_id,
+        model_id="eleven_multilingual_v2",
+        output_format="mp3_44100_128",
+    )
+    with open(filename, "wb") as f:
+        for chunk in audio_chunks:
+            f.write(chunk)
+
+
 speakers = list(PERSONAS.keys()) #just gives: ["Mira","Dr. Chen"]
 
 for i in range(6):
@@ -49,3 +74,8 @@ for i in range(6):
     line = generate_turn(current_speaker) #response of the current speaker
     transcript.append({"speaker": current_speaker, "text": line}) #appended to the transcript
     print(f"{current_speaker}: {line}\n")
+
+    safe_name = current_speaker.replace(" ", "_") #just replacing spaces with _ for the formatting of the file name
+    filename = f"turn_{i}_{safe_name}.mp3"
+    text_to_speech(line, VOICE_IDS[current_speaker], filename)
+    print(f"Saved audio to {filename}\n")
