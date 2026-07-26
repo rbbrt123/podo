@@ -48,6 +48,8 @@ def parse_response(raw_text):
             line = text_line[len("LINE:"):].strip()
         elif text_line.startswith("NEXT:"):
             next_speaker = text_line[len("NEXT:"):].strip()
+    if not line:
+        print(f"Warning: couldn't find a LINE: in the model's response:\n{raw_text!r}\n")
     return line, next_speaker
 
 
@@ -105,14 +107,17 @@ current_speaker = speakers[0]
 
 for i in range(NUM_TURNS):
     line, next_speaker = generate_turn(current_speaker)
-    transcript.append({"speaker": current_speaker, "text": line})
-    print(f"{current_speaker}: {line}\n")
+    if line.strip():
+        transcript.append({"speaker": current_speaker, "text": line})
+        print(f"{current_speaker}: {line}\n")
 
-    safe_name = current_speaker.replace(" ", "_")
-    filename = f"turn_{i}_{safe_name}.mp3"
-    text_to_speech(line, VOICE_IDS[current_speaker], filename)
-    audio_filenames.append(filename)
-    print(f"Saved audio to {filename}\n")
+        safe_name = current_speaker.replace(" ", "_")
+        filename = f"turn_{i}_{safe_name}.mp3"
+        text_to_speech(line, VOICE_IDS[current_speaker], filename)
+        audio_filenames.append(filename)
+        print(f"Saved audio to {filename}\n")
+    else:
+        print(f"Skipping {current_speaker}'s turn — model returned no usable line.\n")
 
     if next_speaker in PERSONAS and next_speaker != current_speaker:
         current_speaker = next_speaker
