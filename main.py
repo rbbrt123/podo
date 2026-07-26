@@ -34,12 +34,27 @@ def format_transcript():
     return "\n".join(lines)
 
 
+def parse_response(raw_text):
+    line = ""
+    next_speaker = None
+    for text_line in raw_text.split("\n"):
+        text_line = text_line.strip()
+        if text_line.startswith("LINE:"):
+            line = text_line[len("LINE:"):].strip()
+        elif text_line.startswith("NEXT:"):
+            next_speaker = text_line[len("NEXT:"):].strip()
+    return line, next_speaker
+
+
 def generate_turn(speaker):
+    other_speakers = [name for name in PERSONAS if name != speaker]
     system_prompt = (
         PERSONAS[speaker] #system prompt of speaker
         + f"\n\nYou are discussing this topic: {TOPIC}\n"
-        + "Respond with ONE short conversational turn (2-3 sentences). "
-        + "Do not include your name or a label before your line — just the words you'd say."
+        + f"The other speaker(s) is/(are): {', '.join(other_speakers)}\n"
+        + "Respond in EXACTLY this format, and nothing else:\n"
+        + "LINE: <your conversational turn, 2-3 sentences, no name label>\n"
+        + f"NEXT: <who should speak next — one of: {', '.join(PERSONAS.keys())}>"
     )
 
     conversation_so_far = format_transcript() #all the outputs so far formatted in a nice way
@@ -53,8 +68,8 @@ def generate_turn(speaker):
         ]
     )
 
-    text = "".join(block.text for block in response.content if block.type == "text")
-    return text.strip()
+    raw_text = "".join(block.text for block in response.content if block.type == "text")
+    return parse_response(raw_text)
 
 
 def text_to_speech(text, voice_id, filename):
@@ -69,19 +84,24 @@ def text_to_speech(text, voice_id, filename):
             f.write(chunk)
 
 
-speakers = list(PERSONAS.keys()) #just gives: ["Mira","Dr. Chen"]
+speakers = list(PERSONAS)
+current_speaker = speakers[0]
 
 for i in range(6):
-    current_speaker = speakers[i % len(speakers)]
-    line = generate_turn(current_speaker) #response of the current speaker
-    transcript.append({"speaker": current_speaker, "text": line}) #appended to the transcript
+    line, next_speaker = generate_turn(current_speaker)
+    transcript.append({"speaker": current_speaker, "text": line})
     print(f"{current_speaker}: {line}\n")
 
-    safe_name = current_speaker.replace(" ", "_") #just replacing spaces with _ for the formatting of the file name
+    safe_name = current_speaker.replace(" ", "_")
     filename = f"turn_{i}_{safe_name}.mp3"
     text_to_speech(line, VOICE_IDS[current_speaker], filename)
     audio_filenames.append(filename)
     print(f"Saved audio to {filename}\n")
+
+    if next_speaker in PERSONAS:
+        current_speaker = next_speaker
+    else:
+        current_speaker = [name for name in speakers if name != current_speaker][0]
 
 pause = AudioSegment.silent(duration=500)
 episode = AudioSegment.empty()
