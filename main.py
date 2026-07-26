@@ -3,6 +3,7 @@ from elevenlabs.client import ElevenLabs
 from pydub import AudioSegment
 from dotenv import load_dotenv
 import os
+import random
 
 load_dotenv()
 
@@ -13,15 +14,18 @@ elevenlabs_client = ElevenLabs(
 )
 
 TOPIC = "Is selling your voice to an AI company ethical?"
+NUM_TURNS = 6
 
 PERSONAS = {
     "Mira" : "You are Mira, the curious host of a podcast. You ask clarifying questions and keep the conversation moving.",
     "Dr. Chen": "You are Dr. Chen, an important voice in the AI community who explains concepts clearly and has novel insights.",
+    "Jordan": "You are Jordan, a skeptical fact-checker who challenges claims and asks for evidence.",
 }
 
 VOICE_IDS = {
     "Mira": "aMSt68OGf4xUZAnLpTU8",
     "Dr. Chen": "vBKc2FfBKJfcZNyEt1n6",
+    "Jordan": "uKGPYP2uuyRQv8SeFre0",
 }
 
 transcript = []
@@ -54,7 +58,7 @@ def generate_turn(speaker):
         + f"The other speaker(s) is/(are): {', '.join(other_speakers)}\n"
         + "Respond in EXACTLY this format, and nothing else:\n"
         + "LINE: <your conversational turn, 2-3 sentences, no name label>\n"
-        + f"NEXT: <who should speak next — one of: {', '.join(PERSONAS.keys())}>"
+        + f"NEXT: <who should speak next — one of: {', '.join(other_speakers)}>"
     )
 
     conversation_so_far = format_transcript() #all the outputs so far formatted in a nice way
@@ -87,7 +91,7 @@ def text_to_speech(text, voice_id, filename):
 speakers = list(PERSONAS)
 current_speaker = speakers[0]
 
-for i in range(6):
+for i in range(NUM_TURNS):
     line, next_speaker = generate_turn(current_speaker)
     transcript.append({"speaker": current_speaker, "text": line})
     print(f"{current_speaker}: {line}\n")
@@ -98,10 +102,10 @@ for i in range(6):
     audio_filenames.append(filename)
     print(f"Saved audio to {filename}\n")
 
-    if next_speaker in PERSONAS:
+    if next_speaker in PERSONAS and next_speaker != current_speaker:
         current_speaker = next_speaker
     else:
-        current_speaker = [name for name in speakers if name != current_speaker][0]
+        current_speaker = random.choice([name for name in speakers if name != current_speaker])
 
 pause = AudioSegment.silent(duration=500)
 episode = AudioSegment.empty()
