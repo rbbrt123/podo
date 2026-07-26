@@ -1,5 +1,6 @@
 from anthropic import Anthropic
 from elevenlabs.client import ElevenLabs
+from elevenlabs.types import VoiceSettings
 from pydub import AudioSegment
 from dotenv import load_dotenv
 import os
@@ -54,10 +55,17 @@ def generate_turn(speaker):
     other_speakers = [name for name in PERSONAS if name != speaker]
     system_prompt = (
         PERSONAS[speaker] #system prompt of speaker
-        + f"\n\nYou are discussing this topic: {TOPIC}\n"
+        + f"\n\nYou are having a real, casual spoken conversation about: {TOPIC}\n"
         + f"The other speaker(s) is/(are): {', '.join(other_speakers)}\n"
+        + "This is a real conversation, not a lecture. Vary your turn length naturally — "
+        + "sometimes a short reaction ('Wait, really?', 'Right, exactly.'), sometimes a longer "
+        + "explanation. It's fine to just react without adding new information. Disagree when "
+        + "you'd genuinely disagree. Sound like a person, not a textbook.\n\n"
+        + "You can direct your own vocal delivery using ElevenLabs audio tags in square brackets, "
+        + "placed right before the words they affect — e.g. [laughs], [sighs], [curious], "
+        + "[excited], [interrupting]. Use them only where they'd genuinely happen, not on every line.\n\n"
         + "Respond in EXACTLY this format, and nothing else:\n"
-        + "LINE: <your conversational turn, 2-3 sentences, no name label>\n"
+        + "LINE: <your conversational turn, audio tags inline where relevant, no name label>\n"
         + f"NEXT: <who should speak next — one of: {', '.join(other_speakers)}>"
     )
 
@@ -80,8 +88,12 @@ def text_to_speech(text, voice_id, filename):
     audio_chunks = elevenlabs_client.text_to_speech.convert(
         text=text,
         voice_id=voice_id,
-        model_id="eleven_multilingual_v2",
+        model_id="eleven_v3",
         output_format="mp3_44100_128",
+        voice_settings = VoiceSettings(
+            stability=0.3,
+            similarity_boost=0.75,
+        ),
     )
     with open(filename, "wb") as f:
         for chunk in audio_chunks:
