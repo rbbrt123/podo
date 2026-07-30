@@ -35,8 +35,11 @@ audio_filenames = []
 def format_transcript():
     if not transcript:
         return "(the conversation hasn't started yet)"
-    lines = [f"{turn['speaker']}: {turn['text']}" for turn in transcript]
-    return "\n".join(lines)
+    blocks = [
+        f"{turn['speaker']}\nLINE: {turn['text']}\nNEXT: {turn['next_speaker']}"
+        for turn in transcript
+    ]
+    return "\n\n".join(blocks)
 
 
 def parse_response(raw_text):
@@ -119,7 +122,7 @@ while successful_turns < NUM_TURNS and attempts < max_attempts:
     next_speaker_valid = next_speaker in PERSONAS and next_speaker != current_speaker
 
     if line.strip() and next_speaker_valid:
-        transcript.append({"speaker": current_speaker, "text": line})
+        transcript.append({"speaker": current_speaker, "text": line, "next_speaker": next_speaker})
         print(f"{current_speaker}: {line}\n")
 
         safe_name = current_speaker.replace(" ", "_")
