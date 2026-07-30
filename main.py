@@ -14,12 +14,12 @@ elevenlabs_client = ElevenLabs(
     api_key=os.getenv("ELEVENLABS_API_KEY")
 )
 
-TOPIC = "Is it a good idea to let juniors line out powerpoints for the first year at a big-4 company?"
+TOPIC = "Is it a good idea to let juniors line out powerpoints for the first year at a big-4 company which is often refered to as 'brain-dead' work?"
 NUM_TURNS = 6
 
 PERSONAS = {
     "Mira" : "You are Mira, the curious host of a podcast. You ask clarifying questions and keep the conversation moving.",
-    "Dr. Chen": "You are Dr. Chen, a partner at a big-4 company that is really fond of letting juniors line out powerpoints and letting them work till late in the night",
+    "Dr. Chen": "You are Dr. Chen, a partner at a big-4 company that is really fond of letting juniors line out powerpoints (brain death work) and letting them work till late in the night for a minimum wage",
     "Jordan": "You are Jordan, a skeptical fact-checker who challenges claims and asks for evidence.",
 }
 
@@ -75,12 +75,16 @@ def generate_turn(speaker):
 
     response = anthropic_client.messages.create(
         model="claude-sonnet-5",
-        max_tokens=200,
+        max_tokens=500,
         system=system_prompt,
         messages=[
             {"role": "user", "content": f"Conversation so far:\n{conversation_so_far}\n\nGive your next line."}
         ]
     )
+
+    if response.stop_reason == "max_tokens":
+        print(f"Warning: {speaker}'s response was cut off (hit max_tokens).\n")
+        return "", None
 
     raw_text = "".join(block.text for block in response.content if block.type == "text")
     return parse_response(raw_text)
@@ -112,7 +116,9 @@ max_attempts = NUM_TURNS * 3 # safety valve so persistent failures can't loop fo
 while successful_turns < NUM_TURNS and attempts < max_attempts:
     attempts += 1
     line, next_speaker = generate_turn(current_speaker)
-    if line.strip():
+    next_speaker_valid = next_speaker in PERSONAS and next_speaker != current_speaker
+
+    if line.strip() and next_speaker_valid:
         transcript.append({"speaker": current_speaker, "text": line})
         print(f"{current_speaker}: {line}\n")
 
@@ -122,12 +128,12 @@ while successful_turns < NUM_TURNS and attempts < max_attempts:
         audio_filenames.append(filename)
         print(f"Saved audio to {filename}\n")
         successful_turns += 1
-    else:
-        print(f"Skipping {current_speaker}'s turn — model returned no usable line.\n")
-
-    if next_speaker in PERSONAS and next_speaker != current_speaker:
         current_speaker = next_speaker
     else:
+        if not line.strip():
+            print(f"Skipping {current_speaker}'s turn — model returned no usable line.\n")
+        else:
+            print(f"Skipping {current_speaker}'s turn — model didn't return a valid NEXT speaker ({next_speaker!r}).\n")
         current_speaker = random.choice([name for name in speakers if name != current_speaker])
 
 if successful_turns < NUM_TURNS:
