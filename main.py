@@ -14,12 +14,12 @@ elevenlabs_client = ElevenLabs(
     api_key=os.getenv("ELEVENLABS_API_KEY")
 )
 
-TOPIC = "Is selling your voice to an AI company ethical?"
+TOPIC = "Is it a good idea to let juniors line out powerpoints for the first year at a big-4 company?"
 NUM_TURNS = 6
 
 PERSONAS = {
     "Mira" : "You are Mira, the curious host of a podcast. You ask clarifying questions and keep the conversation moving.",
-    "Dr. Chen": "You are Dr. Chen, an important voice in the AI community who explains concepts clearly and has novel insights.",
+    "Dr. Chen": "You are Dr. Chen, a partner at a big-4 company that is really fond of letting juniors line out powerpoints and letting them work till late in the night",
     "Jordan": "You are Jordan, a skeptical fact-checker who challenges claims and asks for evidence.",
 }
 
@@ -105,17 +105,23 @@ def text_to_speech(text, voice_id, filename):
 speakers = list(PERSONAS)
 current_speaker = speakers[0]
 
-for i in range(NUM_TURNS):
+successful_turns = 0
+attempts = 0
+max_attempts = NUM_TURNS * 3 # safety valve so persistent failures can't loop forever
+
+while successful_turns < NUM_TURNS and attempts < max_attempts:
+    attempts += 1
     line, next_speaker = generate_turn(current_speaker)
     if line.strip():
         transcript.append({"speaker": current_speaker, "text": line})
         print(f"{current_speaker}: {line}\n")
 
         safe_name = current_speaker.replace(" ", "_")
-        filename = f"turn_{i}_{safe_name}.mp3"
+        filename = f"turn_{successful_turns}_{safe_name}.mp3"
         text_to_speech(line, VOICE_IDS[current_speaker], filename)
         audio_filenames.append(filename)
         print(f"Saved audio to {filename}\n")
+        successful_turns += 1
     else:
         print(f"Skipping {current_speaker}'s turn — model returned no usable line.\n")
 
@@ -123,6 +129,9 @@ for i in range(NUM_TURNS):
         current_speaker = next_speaker
     else:
         current_speaker = random.choice([name for name in speakers if name != current_speaker])
+
+if successful_turns < NUM_TURNS:
+    print(f"Warning: only got {successful_turns}/{NUM_TURNS} turns after {attempts} attempts.\n")
 
 pause = AudioSegment.silent(duration=500)
 episode = AudioSegment.empty()
