@@ -14,3 +14,6 @@ wheels/
 
 # Generated audio
 *.mp3
+
+# Runtime data (SQLite db + saved episodes)
+/data/
