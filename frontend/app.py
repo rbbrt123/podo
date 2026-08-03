@@ -52,3 +52,54 @@ def list_episode_choices():
     episodes = httpx.get(f"{BACKEND_URL}/episodes").json()
     choices = [(f"#{ep['id']} — {ep['topic']} ({ep['status']})", ep["id"]) for ep in episodes]
     return gr.Dropdown(choices=choices)
+
+
+def load_episode(episode_id):
+    """This runs when the user picks something from that dropdown, to actually load and display an existing episode"""
+    if episode_id is None:
+        return None, ""
+    episode = httpx.get(f"{BACKEND_URL}/episodes/{episode_id}").json()
+    if episode["status"] != "complete":
+        return None, f"Episode is {episode['status']}, no audio yet."
+    transcript = "\n\n".join(f"{t['speaker']}: {t['text']}" for t in episode["turns"])
+    return _download_audio(episode_id), transcript
+
+
+def build_app():
+    """assembling the actual UI"""
+    with gr.Blocks(title="podo") as demo:
+        gr.Markdown("# podo")
+
+        with gr.Tab("Generate"):
+            topic_input = gr.Textbox(label="Topic")
+            num_turns_input = gr.Slider(minimum=2, maximum=20, value=6, step=1, label="Number of turns")
+            generate_button = gr.Button("Generate episode")
+            status_output = gr.Markdown()
+            audio_output = gr.Audio(label="Episode audio")
+            transcript_output = gr.Textbox(label="Transcript", lines=15, interactive=False)
+
+        generate_button.click(
+                fn=generate_episode,
+                inputs=[topic_input, num_turns_input],
+                outputs=[status_output, audio_output, transcript_output],
+            )
+
+        with gr.Tab("Library"):
+            refresh_button = gr.Button("Refresh")
+            episode_dropdown = gr.Dropdown(label="Saved episodes", choices=[])
+            library_audio_output = gr.Audio(label="Episode audio")
+            library_transcript_output = gr.Textbox(label="Transcript", lines=15, interactive=False)
+
+            refresh_button.click(fn=list_episode_choices, outputs=episode_dropdown)
+            episode_dropdown.change(
+                fn=load_episode,
+                inputs=episode_dropdown,
+                outputs=[library_audio_output, library_transcript_output],
+            )
+            demo.load(fn=list_episode_choices, outputs=episode_dropdown)
+
+    return demo
+
+
+if __name__ == "__main__":
+    build_app().launch()
