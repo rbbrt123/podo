@@ -16,13 +16,14 @@ app = FastAPI(lifespan=lifespan)
 
 
 class CreateEpisodeRequest(BaseModel):
+    title: str = ""
     topic: str
     num_turns: int = Field(default=6, ge=2, le=20)
 
 
 @app.post("/episodes")
 def create_episode(request: CreateEpisodeRequest, background_tasks: BackgroundTasks):
-    episode_id = storage.create_episode(request.topic, request.num_turns)
+    episode_id = storage.create_episode(request.title, request.topic, request.num_turns)
     background_tasks.add_task(generation.generate_episode, episode_id, request.topic, request.num_turns)
     return {"id": episode_id, "status": "pending"}
 
