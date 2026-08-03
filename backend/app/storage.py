@@ -3,7 +3,8 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-DATA_DIR = Path(os.getenv("PODO_DATA_DIR", "./data"))
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+DATA_DIR = Path(os.getenv("PODO_DATA_DIR", PROJECT_ROOT / "data"))
 DB_PATH = DATA_DIR / "podo.db"
 EPISODES_DIR = DATA_DIR / "episodes"
 

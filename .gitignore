@@ -16,4 +16,4 @@ wheels/
 *.mp3
 
 # Runtime data (SQLite db + saved episodes)
-/data/
+data/
