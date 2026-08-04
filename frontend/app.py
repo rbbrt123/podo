@@ -19,7 +19,7 @@ def _download_audio(episode_id):
     return tmp.name
 
 
-def generate_episode(topic, num_turns):
+def generate_episode(title, topic, num_turns):
     """frontend's whole workflow for kicking off an episode and watching it complete"""
     if not topic.strip():
         yield "Please enter a topic.", None, ""
@@ -27,7 +27,7 @@ def generate_episode(topic, num_turns):
 
     response = httpx.post(
         f"{BACKEND_URL}/episodes",
-        json={"topic": topic, "num_turns": int(num_turns)},
+        json={"title": title, "topic": topic, "num_turns": int(num_turns)},
     )
     response.raise_for_status()
     episode_id = response.json()["id"]
@@ -50,7 +50,7 @@ def generate_episode(topic, num_turns):
 
 def list_episode_choices():
     episodes = httpx.get(f"{BACKEND_URL}/episodes").json()
-    choices = [(f"#{ep['id']} — {ep['topic']} ({ep['status']})", ep["id"]) for ep in episodes]
+    choices = [(f"#{ep['id']} — {ep['title']} ({ep['status']})", ep["id"]) for ep in episodes]
     return gr.Dropdown(choices=choices)
 
 
@@ -71,6 +71,7 @@ def build_app():
         gr.Markdown("# podo")
 
         with gr.Tab("Generate"):
+            title_input = gr.Textbox(label="Episode title (optional - defaults to the topic)")
             topic_input = gr.Textbox(label="Topic")
             num_turns_input = gr.Slider(minimum=2, maximum=20, value=6, step=1, label="Number of turns")
             generate_button = gr.Button("Generate episode")
@@ -80,7 +81,7 @@ def build_app():
 
         generate_button.click(
                 fn=generate_episode,
-                inputs=[topic_input, num_turns_input],
+                inputs=[title_input, topic_input, num_turns_input],
                 outputs=[status_output, audio_output, transcript_output],
             )
 
