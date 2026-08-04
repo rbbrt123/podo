@@ -16,6 +16,7 @@ def init_db():
         conn.execute("""
             CREATE TABLE IF NOT EXISTS episodes (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
                 topic TEXT NOT NULL,
                 num_turns INTEGER NOT NULL,
                 status TEXT NOT NULL DEFAULT 'pending',
@@ -35,11 +36,12 @@ def init_db():
         """)
 
 
-def create_episode(topic: str, num_turns: int) -> int:
+def create_episode(title: str, topic: str, num_turns: int) -> int:
+    resolved_title = title.strip() or topic
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.execute(
-            "INSERT INTO episodes (topic, num_turns, status, created_at) VALUES (?, ?, 'pending', ?)",
-            (topic, num_turns, datetime.now(timezone.utc).isoformat()),
+            "INSERT INTO episodes (title, topic, num_turns, status, created_at) VALUES (?, ?, ?, 'pending', ?)",
+            (resolved_title, topic, num_turns, datetime.now(timezone.utc).isoformat()),
         )
         return cursor.lastrowid
 
@@ -69,7 +71,7 @@ def list_episodes() -> list[dict]:
     with sqlite3.connect(DB_PATH) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            "SELECT id, topic, num_turns, status, created_at FROM episodes ORDER BY created_at DESC"
+            "SELECT id, title, topic, num_turns, status, created_at FROM episodes ORDER BY created_at DESC"
         ).fetchall()
         return [dict(row) for row in rows]
 
