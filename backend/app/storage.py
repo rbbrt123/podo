@@ -35,6 +35,16 @@ def init_db():
                 text TEXT NOT NULL
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS agents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                prompt TEXT NOT NULL,
+                voice_id TEXT NOT NULL,
+                is_builtin INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL
+            )
+        """)
 
 
 def create_episode(title: str, topic: str, num_turns: int) -> int:
@@ -106,3 +116,58 @@ def episode_audio_path(episode_id: int) -> Path:
     episode_dir = EPISODES_DIR / str(episode_id)
     episode_dir.mkdir(parents=True, exist_ok=True)
     return episode_dir / "episode.mp3"
+
+
+def create_agent(name: str, prompt: str, voice_id: str, is_builtin: bool = False) -> int:
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.execute(
+            "INSERT INTO agents (name, prompt, voice_id, is_builtin, created_at) VALUES (?, ?, ?, ?, ?)",
+            (name, prompt, voice_id, int(is_builtin), datetime.now(timezone.utc).isoformat()),
+        )
+        return cursor.lastrowid
+
+
+def list_agents() -> list[dict]:
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("SELECT * FROM agents ORDER BY is_builtin DESC, name").fetchall()
+        return [dict(row) for row in rows]
+
+
+def get_agent(agent_id: int) -> dict | None:
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute("SELECT * FROM agents WHERE id = ?", (agent_id,)).fetchone()
+        return dict(row) if row else None
+
+
+def update_agent(agent_id: int, name: str, prompt: str, voice_id: str) -> None:
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute(
+            "UPDATE agents SET name = ?, prompt = ?, voice_id = ? WHERE id = ?",
+            (name, prompt, voice_id, agent_id),
+        )
+
+
+def delete_agent(agent_id: int) -> None:
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute("DELETE FROM agents WHERE id = ?", (agent_id,))
+
+
+def seed_builtin_agents() -> None:
+    defaults = [
+        ("Nova", "You are Nova, a podcast host who thinks in tangents and vivid analogies. You're relentlessly curious but impatient with vague answers — when a guest gives you an abstract claim, you immediately demand a concrete example or a 'so what does that mean for a normal person' follow-up. You interrupt (politely) when you sense someone is about to ramble into jargon, and you have a habit of restating complex points as slightly absurd analogies to test whether you actually understood them. You're not afraid to say 'wait, that sounds wrong' out loud.", "aMSt68OGf4xUZAnLpTU8"),
+
+        ("Professor Okafor", "You are Professor Okafor, a domain expert with a reputation for overturning conventional wisdom using counterintuitive research and real data. You speak with quiet authority and mild academic stubbornness — you don't back down from a claim just because it's challenged, you defend it with evidence, though you'll happily admit uncertainty on things outside your specialty. You have a dry wit and occasionally can't resist a pointed jab at popular misconceptions. You dislike vague hand-waving and will gently call it out.", "vBKc2FfBKJfcZNyEt1n6"),
+
+        ("Sam", "You are Sam, a sharp skeptical outsider who wasn't briefed on the topic beforehand — you're hearing the claims for the first time, like the audience is. You ask the 'dumb' questions that are actually the important ones ('wait, but doesn't that contradict what you just said?'), push everyone to explain jargon in plain language, and are openly unconvinced until someone gives you a real-world stake or consequence. You're not hostile, just stubbornly literal-minded, and you enjoy poking holes in things that sound too neat.", "UgBBYS2sOqTuMpoF3BR0"),
+    ]
+    with sqlite3.connect(DB_PATH) as conn:
+        already_seeded = conn.execute("SELECT COUNT(*) FROM agents WHERE is_builtin = 1").fetchone()[0]
+        if already_seeded:
+            return
+        for name, prompt, voice_id in defaults:
+            conn.execute(
+                "INSERT INTO agents (name, prompt, voice_id, is_builtin, created_at) VALUES (?, ?, ?, 1, ?)",
+                (name, prompt, voice_id, datetime.now(timezone.utc).isoformat()),
+            )
