@@ -133,6 +133,7 @@ def _run_generation(episode_id: int, topic: str, num_turns: int) -> None:
 
             successful_turns += 1
             current_speaker = next_speaker
+            storage.update_episode_progress(episode_id, successful_turns)
 
         else:
             current_speaker = random.choice([name for name in speakers if name != current_speaker])

@@ -1,6 +1,5 @@
 import os
 import tempfile
-import time
 
 import gradio as gr
 import httpx
@@ -19,33 +18,38 @@ def _download_audio(episode_id):
     return tmp.name
 
 
-def generate_episode(title, topic, num_turns):
-    """frontend's whole workflow for kicking off an episode and watching it complete"""
+def start_generation(title, topic, num_turns):
+    """Kicks off generation and starts the polling timer."""
     if not topic.strip():
-        yield "Please enter a topic.", None, ""
-        return
+        return None, "Please enter a topic.", gr.skip(), gr.skip(), gr.Timer(active=False)
 
+    total_turns = int(num_turns)
     response = httpx.post(
         f"{BACKEND_URL}/episodes",
-        json={"title": title, "topic": topic, "num_turns": int(num_turns)},
+        json={"title": title, "topic": topic, "num_turns": total_turns},
     )
     response.raise_for_status()
     episode_id = response.json()["id"]
 
-    while True:
-        episode = httpx.get(f"{BACKEND_URL}/episodes/{episode_id}").json()
-        status = episode["status"]
+    return episode_id, f"Episode #{episode_id}: pending...", None, "", gr.Timer(active=True)
 
-        if status == "complete":
-            transcript = "\n\n".join(f"{t['speaker']}: {t['text']}" for t in episode["turns"])
-            yield f"Episode #{episode_id}: done!", _download_audio(episode_id), transcript
-            return
-        elif status == "failed":
-            yield f"Episode #{episode_id} failed: {episode['error_message']}", None, ""
-            return
-        else:
-            yield f"Episode #{episode_id}: {status}...", None, ""
-            time.sleep(2)
+
+def poll_episode(episode_id):
+    """Runs on every Timer tick while a generation is in progress."""
+    if episode_id is None:
+        return gr.skip(), gr.skip(), gr.skip(), gr.skip()
+
+    episode = httpx.get(f"{BACKEND_URL}/episodes/{episode_id}").json()
+    status = episode["status"]
+
+    if status == "complete":
+        transcript = "\n\n".join(f"{t['speaker']}: {t['text']}" for t in episode["turns"])
+        return f"Episode #{episode_id}: done!", _download_audio(episode_id), transcript, gr.Timer(active=False)
+    elif status == "failed":
+        return f"Episode #{episode_id} failed: {episode['error_message']}", gr.skip(), gr.skip(), gr.Timer(active=False)
+    else:
+        status_text = f"Episode #{episode_id}: {status}... ({episode['current_turn']}/{episode['num_turns']} turns)"
+        return status_text, gr.skip(), gr.skip(), gr.skip()
 
 
 def list_episode_choices():
@@ -79,11 +83,22 @@ def build_app():
             audio_output = gr.Audio(label="Episode audio")
             transcript_output = gr.Textbox(label="Transcript", lines=15, interactive=False)
 
+            episode_id_state = gr.State(value=None)
+            poll_timer = gr.Timer(2, active=False)
+
         generate_button.click(
-                fn=generate_episode,
+                fn=start_generation,
                 inputs=[title_input, topic_input, num_turns_input],
-                outputs=[status_output, audio_output, transcript_output],
+                outputs=[episode_id_state, status_output, audio_output, transcript_output, poll_timer],
+                show_progress="hidden",
             )
+
+        poll_timer.tick(
+            fn=poll_episode,
+            inputs=[episode_id_state],
+            outputs=[status_output, audio_output, transcript_output, poll_timer],
+            show_progress="hidden",
+        )
 
         with gr.Tab("Library"):
             refresh_button = gr.Button("Refresh")
