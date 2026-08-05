@@ -19,6 +19,7 @@ def init_db():
                 title TEXT NOT NULL,
                 topic TEXT NOT NULL,
                 num_turns INTEGER NOT NULL,
+                current_turn INTEGER NOT NULL DEFAULT 0,
                 status TEXT NOT NULL DEFAULT 'pending',
                 error_message TEXT,
                 audio_path TEXT,
@@ -56,6 +57,14 @@ def update_episode_status(
         conn.execute(
             "UPDATE episodes SET status = ?, error_message = ?, audio_path = ? WHERE id = ?",
             (status, error_message, audio_path, episode_id),
+        )
+
+
+def update_episode_progress(episode_id: int, current_turn: int) -> None:
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute(
+            "UPDATE episodes SET current_turn = ? WHERE id = ?",
+            (current_turn, episode_id),
         )
 
 

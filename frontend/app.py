@@ -19,15 +19,16 @@ def _download_audio(episode_id):
     return tmp.name
 
 
-def generate_episode(title, topic, num_turns):
+def generate_episode(title, topic, num_turns, progress=gr.Progress()):
     """frontend's whole workflow for kicking off an episode and watching it complete"""
     if not topic.strip():
         yield "Please enter a topic.", None, ""
         return
 
+    total_turns = int(num_turns)
     response = httpx.post(
         f"{BACKEND_URL}/episodes",
-        json={"title": title, "topic": topic, "num_turns": int(num_turns)},
+        json={"title": title, "topic": topic, "num_turns": total_turns},
     )
     response.raise_for_status()
     episode_id = response.json()["id"]
@@ -44,7 +45,8 @@ def generate_episode(title, topic, num_turns):
             yield f"Episode #{episode_id} failed: {episode['error_message']}", None, ""
             return
         else:
-            yield f"Episode #{episode_id}: {status}...", None, ""
+            progress(episode["current_turn"] / total_turns, desc=f"Turn {episode['current_turn']}/{total_turns}")
+            yield f"Episode #{episode_id}: {status}... ({episode['current_turn']}/{total_turns} turns)", None, ""
             time.sleep(2)
 
 
