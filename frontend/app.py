@@ -69,6 +69,62 @@ def load_episode(episode_id):
     return _download_audio(episode_id), transcript
 
 
+def _form_state(agent_id, name, prompt, voice_id, is_builtin):
+    return (
+        gr.Textbox(value=name, interactive=not is_builtin),
+        gr.Textbox(value=prompt, interactive=not is_builtin),
+        gr.Textbox(value=voice_id, interactive=not is_builtin),
+        agent_id,
+        gr.Button(visible=not is_builtin),                        
+        gr.Button(visible=agent_id is not None and not is_builtin), 
+        gr.Button(visible=is_builtin),
+    )
+
+
+def list_agent_choices():
+    agents = httpx.get(f"{BACKEND_URL}/agents").json()
+    choices = [(a["name"] + (" (built-in)" if a["is_builtin"] else ""), a["id"]) for a in agents]
+    return gr.Dropdown(choices=choices)
+
+
+def load_agent(agent_id):
+    """Runs when an agent is picked from the dropdown, to populate the form."""
+    if agent_id is None:
+        return _form_state(None, "", "", "", is_builtin=False)
+    agent = httpx.get(f"{BACKEND_URL}/agents/{agent_id}").json()
+    return _form_state(agent["id"], agent["name"], agent["prompt"], agent["voice_id"], agent["is_builtin"])
+
+
+def new_agent_form():
+    return _form_state(None, "", "", "", is_builtin=False)
+
+
+def save_agent(agent_id, name, prompt, voice_id):
+    if not name.strip() or not prompt.strip() or not voice_id.strip():
+        return gr.skip(), "Name, prompt, and voice ID are all required."
+
+    payload = {"name": name, "prompt": prompt, "voice_id": voice_id}
+    if agent_id is None:
+        httpx.post(f"{BACKEND_URL}/agents", json=payload).raise_for_status()
+        message = f"Created agent '{name}'."
+    else:
+        httpx.put(f"{BACKEND_URL}/agents/{agent_id}", json=payload).raise_for_status()
+        message = f"Saved agent '{name}'."
+
+    return list_agent_choices(), message
+
+
+def duplicate_agent(name, prompt, voice_id):
+    return _form_state(None, f"{name} (copy)", prompt, voice_id, is_builtin=False)
+
+
+def delete_agent(agent_id):
+    if agent_id is None:
+        return gr.skip(), "No agent selected."
+    httpx.delete(f"{BACKEND_URL}/agents/{agent_id}").raise_for_status()
+    return list_agent_choices(), "Agent deleted."
+
+
 def build_app():
     """assembling the actual UI"""
     with gr.Blocks(title="podo") as demo:
@@ -113,6 +169,58 @@ def build_app():
                 outputs=[library_audio_output, library_transcript_output],
             )
             demo.load(fn=list_episode_choices, outputs=episode_dropdown)
+
+        with gr.Tab("Agent Lab"):
+            agent_dropdown = gr.Dropdown(label="Agents", choices=[])
+            refresh_agents_button = gr.Button("Refresh")
+
+            name_input = gr.Textbox(label="Name")
+            prompt_input = gr.Textbox(label="Prompt", lines=6)
+            voice_id_input = gr.Textbox(label="Voice ID")
+
+            with gr.Row():
+                new_agent_button = gr.Button("New agent")
+                save_agent_button = gr.Button("Save")
+                delete_agent_button = gr.Button("Delete", variant="stop")
+                duplicate_agent_button = gr.Button("Duplicate into editable copy")
+
+            agent_status_output = gr.Markdown()
+            agent_id_state = gr.State(value=None)
+
+            agent_dropdown.change(
+                fn=load_agent,
+                inputs=agent_dropdown,
+                outputs=[name_input, prompt_input, voice_id_input, agent_id_state,
+                         save_agent_button, delete_agent_button, duplicate_agent_button],
+            )
+
+            new_agent_button.click(
+                fn=new_agent_form,
+                outputs=[name_input, prompt_input, voice_id_input, agent_id_state,
+                         save_agent_button, delete_agent_button, duplicate_agent_button],
+            )
+
+            duplicate_agent_button.click(
+                fn=duplicate_agent,
+                inputs=[name_input, prompt_input, voice_id_input],
+                outputs=[name_input, prompt_input, voice_id_input, agent_id_state,
+                         save_agent_button, delete_agent_button, duplicate_agent_button],
+            )
+
+            save_agent_button.click(
+                fn=save_agent,
+                inputs=[agent_id_state, name_input, prompt_input, voice_id_input],
+                outputs=[agent_dropdown, agent_status_output],
+            )
+
+            delete_agent_button.click(
+                fn=delete_agent,
+                inputs=agent_id_state,
+                outputs=[agent_dropdown, agent_status_output],
+            )
+
+            refresh_agents_button.click(fn=list_agent_choices, outputs=agent_dropdown)
+            demo.load(fn=list_agent_choices, outputs=agent_dropdown)
 
     return demo
 
