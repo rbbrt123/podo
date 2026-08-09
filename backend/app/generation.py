@@ -15,6 +15,14 @@ anthropic_client = Anthropic()
 elevenlabs_client = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
 
 
+def list_voices():
+    response = elevenlabs_client.voices.get_all()
+    return [
+        {"voice_id": voice.voice_id, "name": voice.name, "preview_url": voice.preview_url} 
+        for voice in response.voices
+        ]
+
+
 def format_transcript(transcript):
     if not transcript:
         return "(the conversation hasn't started yet)"
