@@ -14,18 +14,6 @@ load_dotenv()
 anthropic_client = Anthropic()
 elevenlabs_client = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
 
-PERSONAS = {
-    "Mira": "You are Mira, the curious host of a podcast. You ask clarifying questions and keep the conversation moving.",
-    "Dr. Chen": "You are Dr. Chen, a partner at a big-4 company that is really fond of letting juniors line out powerpoints (brain death work) and letting them work till late in the night for a minimum wage",
-    "Jordan": "You are Jordan, a skeptical fact-checker who challenges claims and asks for evidence.",
-}
-
-VOICE_IDS = {
-    "Mira": "aMSt68OGf4xUZAnLpTU8",
-    "Dr. Chen": "vBKc2FfBKJfcZNyEt1n6",
-    "Jordan": "uKGPYP2uuyRQv8SeFre0",
-}
-
 
 def format_transcript(transcript):
     if not transcript:
@@ -49,10 +37,10 @@ def parse_response(raw_text):
     return line, next_speaker
 
 
-def generate_turn(speaker, topic, transcript):
-    other_speakers = [name for name in PERSONAS if name != speaker]
+def generate_turn(speaker, topic, transcript, agents):
+    other_speakers = [name for name in agents if name != speaker]
     system_prompt = (
-        PERSONAS[speaker]
+        agents[speaker]["prompt"]
         + f"\n\nYou are having a real, casual spoken conversation about: {topic}\n"
         + f"The other speaker(s) is/(are): {', '.join(other_speakers)}\n"
         + "This is a real conversation, not a lecture. Vary your turn length naturally — "
@@ -84,6 +72,7 @@ def generate_turn(speaker, topic, transcript):
     raw_text = "".join(block.text for block in response.content if block.type == "text")
     return parse_response(raw_text)
 
+
 def text_to_speech(text, voice_id, filename):
     audio_chunks = elevenlabs_client.text_to_speech.convert(
         text=text,
@@ -97,21 +86,27 @@ def text_to_speech(text, voice_id, filename):
             f.write(chunk)
 
 
-def generate_episode(episode_id: int, topic: str, num_turns: int) -> None:
+def generate_episode(episode_id: int, topic: str, num_turns: int, agent_ids: list[int]) -> None:
     storage.update_episode_status(episode_id, "generating")
     try:
-        _run_generation(episode_id, topic, num_turns)
+        _run_generation(episode_id, topic, num_turns, agent_ids)
     except Exception as exc:
         storage.update_episode_status(episode_id, "failed", error_message=str(exc))
 
 
-def _run_generation(episode_id: int, topic: str, num_turns: int) -> None:
+def _run_generation(episode_id: int, topic: str, num_turns: int, agent_ids: list[int]) -> None:
+    agents = {}
+    for agent_id in agent_ids:
+        agent = storage.get_agent(agent_id)
+        if agent is not None:
+            agents[agent["name"]] = agent
+
     final_path = storage.episode_audio_path(episode_id)
     episode_dir = final_path.parent
 
     transcript = []
     turn_audio_files = []
-    speakers = list(PERSONAS)
+    speakers = list(agents)
     current_speaker = speakers[0]
 
     successful_turns = 0
@@ -120,15 +115,15 @@ def _run_generation(episode_id: int, topic: str, num_turns: int) -> None:
 
     while successful_turns < num_turns and attempts < max_attempts:
         attempts += 1
-        line, next_speaker = generate_turn(current_speaker, topic, transcript)
-        next_speaker_valid = next_speaker in PERSONAS and next_speaker != current_speaker
+        line, next_speaker = generate_turn(current_speaker, topic, transcript, agents)
+        next_speaker_valid = next_speaker in agents and next_speaker != current_speaker
 
         if line.strip() and next_speaker_valid:
             transcript.append({"speaker": current_speaker, "text": line, "next_speaker": next_speaker})
             storage.save_turn(episode_id, successful_turns, current_speaker, line)
 
             turn_file = episode_dir / f"turn_{successful_turns}.mp3"
-            text_to_speech(line, VOICE_IDS[current_speaker], str(turn_file))
+            text_to_speech(line, agents[current_speaker]["voice_id"], str(turn_file))
             turn_audio_files.append(turn_file)
 
             successful_turns += 1
