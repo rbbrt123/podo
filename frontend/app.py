@@ -75,7 +75,7 @@ def _form_state(agent_id, name, prompt, voice_id, is_builtin):
     return (
         gr.Textbox(value=name, interactive=not is_builtin),
         gr.Textbox(value=prompt, interactive=not is_builtin),
-        gr.Textbox(value=voice_id, interactive=not is_builtin),
+        gr.Dropdown(value=voice_id, interactive=not is_builtin),
         agent_id,
         gr.Button(visible=not is_builtin),                        
         gr.Button(visible=agent_id is not None and not is_builtin), 
@@ -94,6 +94,17 @@ def list_agent_choices():
 
 def list_agent_checkboxes():
     return gr.CheckboxGroup(choices=_fetch_agent_choices())
+
+
+def list_voice_choices():
+    voices = httpx.get(f"{BACKEND_URL}/voices").json()
+    choices = [(v["name"], v["voice_id"]) for v in voices]
+    previews = {v["voice_id"]: v["preview_url"] for v in voices}
+    return gr.Dropdown(choices=choices), previews
+
+
+def preview_voice(voice_id, previews):
+    return previews.get(voice_id)
 
 
 def load_agent(agent_id):
@@ -191,7 +202,9 @@ def build_app():
 
             name_input = gr.Textbox(label="Name")
             prompt_input = gr.Textbox(label="Prompt", lines=6)
-            voice_id_input = gr.Textbox(label="Voice ID")
+            voice_id_input = gr.Dropdown(label="Voice", choices=[])
+            voice_preview_output = gr.Audio(label="Voice preview", autoplay=True)
+            voice_previews_state = gr.State(value={})
 
             with gr.Row():
                 new_agent_button = gr.Button("New agent")
@@ -236,6 +249,13 @@ def build_app():
 
             refresh_agents_button.click(fn=list_agent_choices, outputs=agent_dropdown)
             demo.load(fn=list_agent_choices, outputs=agent_dropdown)
+            demo.load(fn=list_voice_choices, outputs=[voice_id_input, voice_previews_state])
+
+            voice_id_input.change(
+                fn=preview_voice,
+                inputs=[voice_id_input, voice_previews_state],
+                outputs=voice_preview_output,
+            )
 
     return demo
 
