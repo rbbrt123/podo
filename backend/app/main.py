@@ -104,3 +104,8 @@ def delete_agent(agent_id: int):
         raise HTTPException(status_code=400, detail="Built-in agents can't be deleted")
     storage.delete_agent(agent_id)
     return {"status": "deleted"}
+
+
+@app.get("/voices")
+def list_voices():
+    return generation.list_voices()
