@@ -20,6 +20,7 @@ class CreateEpisodeRequest(BaseModel):
     title: str = ""
     topic: str
     num_turns: int = Field(default=6, ge=2, le=20)
+    agent_ids: list[int] = Field(min_length=2)
 
 
 class AgentRequest(BaseModel):
@@ -30,8 +31,16 @@ class AgentRequest(BaseModel):
 
 @app.post("/episodes")
 def create_episode(request: CreateEpisodeRequest, background_tasks: BackgroundTasks):
+    agents = [storage.get_agent(agent_id) for agent_id in request.agent_ids]
+    if any(agent is None for agent in agents):
+        raise HTTPException(status_code=400, detail="One or more selected agents no longer exist")
+    if len({agent["name"] for agent in agents}) != len(agents):
+        raise HTTPException(status_code=400, detail="Selected agents must have distinct names")
+
     episode_id = storage.create_episode(request.title, request.topic, request.num_turns)
-    background_tasks.add_task(generation.generate_episode, episode_id, request.topic, request.num_turns)
+    background_tasks.add_task(
+        generation.generate_episode, episode_id, request.topic, request.num_turns, request.agent_ids
+        )
     return {"id": episode_id, "status": "pending"}
 
 

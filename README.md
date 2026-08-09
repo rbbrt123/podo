@@ -124,9 +124,10 @@ current directory.
 | `PODO_DATA_DIR` | backend | `./data` | Where the SQLite DB and episode audio are stored |
 | `PODO_BACKEND_URL` | frontend | `http://localhost:8000` | Where the frontend looks for the backend API |
 
-Personas and their voices are defined in `backend/app/generation.py`
-(`PERSONAS` and `VOICE_IDS`) — add or remove entries there to change
-the lineup. Voice IDs come from your ElevenLabs account.
+Agents (a persona prompt plus an ElevenLabs voice ID) are managed
+through the **Agent Lab** tab, or directly via the `/agents` API — no
+code changes needed to add, edit, or remove one. Pick at least two
+agents on the **Generate** tab for each episode.
 
 ## Why this project
 
