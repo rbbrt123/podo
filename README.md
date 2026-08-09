@@ -11,6 +11,12 @@ end-to-end with Claude (dialogue) and ElevenLabs (voice).
 - Turns are stitched into one playable episode
 - A FastAPI backend generates episodes in the background and a Gradio
   web UI lets you kick them off and browse a library of past episodes
+- Personas ("agents") are user-created and editable in an **Agent
+  Lab** tab — a name, a prompt, and a voice picked from your
+  ElevenLabs voice library, with instant preview playback of each
+  voice. Three locked built-in agents ship by default; anything you
+  create yourself is fully editable, and you can duplicate a built-in
+  into an editable copy to start from
 
 **Planned next:** a listener knowledge-level parameter, so the
 conversation's depth and vocabulary calibrate to what you already know.
@@ -19,15 +25,20 @@ conversation's depth and vocabulary calibrate to what you already know.
 
 The app is split into two services:
 
-- **`backend/`** — a FastAPI service that owns episode generation. It
-  exposes a small REST API (`POST /episodes`, `GET /episodes`,
-  `GET /episodes/{id}`, `GET /episodes/{id}/audio`), runs the
+- **`backend/`** — a FastAPI service that owns episode generation and
+  agent storage. It exposes a REST API (`POST /episodes`,
+  `GET /episodes`, `GET /episodes/{id}`, `GET /episodes/{id}/audio`,
+  full CRUD on `/agents`, and `GET /voices` which proxies your
+  ElevenLabs voice library so the API key stays server-side), runs the
   conversation loop against Claude, synthesizes each turn with
   ElevenLabs, stitches the turns into a single MP3, and persists
-  episodes/turns in a SQLite database.
-- **`frontend/`** — a Gradio app with two tabs: **Generate** (submit a
-  topic and turn count, watch status update, play the finished
-  episode) and **Library** (browse and replay past episodes). It talks
+  episodes/turns/agents in a SQLite database.
+- **`frontend/`** — a Gradio app with three tabs: **Generate** (pick
+  at least two agents, submit a topic and turn count, watch status
+  update, play the finished episode), **Library** (browse and replay
+  past episodes), and **Agent Lab** (create/edit/delete agents — a
+  name, a prompt, and a voice chosen from a dropdown backed by
+  `GET /voices`, with click-to-preview audio for each voice). It talks
   to the backend purely over HTTP.
 
 Generated data (the SQLite DB and per-episode MP3s) lives under
@@ -72,10 +83,11 @@ This builds and starts both services:
 - Backend on [http://localhost:8000](http://localhost:8000)
 - Frontend on [http://localhost:7860](http://localhost:7860)
 
-Open the frontend URL in your browser, enter a topic and number of
-turns on the **Generate** tab, and hit "Generate episode". Generated
-episodes and the SQLite database are written to `./data` on your host
-(mounted into the backend container) and persist across restarts.
+Open the frontend URL in your browser, pick at least two agents,
+enter a topic and number of turns on the **Generate** tab, and hit
+"Generate episode". Generated episodes and the SQLite database are
+written to `./data` on your host (mounted into the backend container)
+and persist across restarts.
 
 ### Option B: Run locally with uv
 
@@ -124,10 +136,11 @@ current directory.
 | `PODO_DATA_DIR` | backend | `./data` | Where the SQLite DB and episode audio are stored |
 | `PODO_BACKEND_URL` | frontend | `http://localhost:8000` | Where the frontend looks for the backend API |
 
-Agents (a persona prompt plus an ElevenLabs voice ID) are managed
-through the **Agent Lab** tab, or directly via the `/agents` API — no
-code changes needed to add, edit, or remove one. Pick at least two
-agents on the **Generate** tab for each episode.
+Agents (a persona prompt plus a voice picked from your ElevenLabs
+voice library) are managed through the **Agent Lab** tab, or directly
+via the `/agents` API — no code changes needed to add, edit, or remove
+one. Pick at least two agents on the **Generate** tab for each
+episode.
 
 ## Why this project
 
