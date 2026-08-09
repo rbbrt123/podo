@@ -110,17 +110,17 @@ def preview_voice(voice_id, previews):
 def load_agent(agent_id):
     """Runs when an agent is picked from the dropdown, to populate the form."""
     if agent_id is None:
-        return _form_state(None, "", "", "", is_builtin=False)
+        return _form_state(None, "", "", None, is_builtin=False)
     agent = httpx.get(f"{BACKEND_URL}/agents/{agent_id}").json()
     return _form_state(agent["id"], agent["name"], agent["prompt"], agent["voice_id"], agent["is_builtin"])
 
 
 def new_agent_form():
-    return _form_state(None, "", "", "", is_builtin=False)
+    return _form_state(None, "", "", None, is_builtin=False)
 
 
 def save_agent(agent_id, name, prompt, voice_id):
-    if not name.strip() or not prompt.strip() or not voice_id.strip():
+    if not name.strip() or not prompt.strip() or not voice_id:
         return gr.skip(), "Name, prompt, and voice ID are all required."
 
     payload = {"name": name, "prompt": prompt, "voice_id": voice_id}
