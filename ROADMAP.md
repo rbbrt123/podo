@@ -38,7 +38,7 @@ Worth recording so this choice doesn't look like an accident:
   main value right now isn't tracking individual tasks, it's
   reasoning about *order* — what unblocks what, what's safe to build
   cheaply now vs. later. That's a narrative, and it reads far better
-  as one reviewable document than as ten issues you'd have to
+  as one reviewable document than as a dozen issues you'd have to
   reconstruct the story from.
 - **Zero new surface.** No new account/tab to check, no labels or
   board columns to maintain for an audience of one. Every review
@@ -62,21 +62,27 @@ Worth recording so this choice doesn't look like an accident:
 | 1 | [Delete episodes](#1-delete-episodes) | Small | Not started |
 | 2 | [Optional self-introductions toggle](#2-optional-self-introductions-toggle) | Small | Not started |
 | 3 | [Duration-based length](#3-duration-based-length) | Small–Medium | Not started |
-| 4 | [Faster generation](#4-faster-generation) | Medium | Not started |
-| 5 | [Document-grounded episodes](#5-document-grounded-episodes) | Medium–Large | Not started |
-| 6 | [AI-assisted prompt generation](#6-ai-assisted-prompt-generation) | Medium | Not started |
-| 7 | [Agent personalization](#7-agent-personalization) | Medium (scope assumed — see notes) | Not started |
-| 8 | [More natural conversational flow](#8-more-natural-conversational-flow) | Medium–Large | Not started |
-| 9 | [React frontend](#9-react-frontend) | Large | Not started |
-| 10 | [Interactive interruptions](#10-interactive-interruptions) | Large | Not started |
+| 4 | [Deploying podo](#4-deploying-podo) | Small–Medium (scope assumed — see notes) | Not started |
+| 5 | [Faster generation](#5-faster-generation) | Medium | Not started |
+| 6 | [Document-grounded episodes](#6-document-grounded-episodes) | Medium–Large | Not started |
+| 7 | [AI-assisted prompt generation](#7-ai-assisted-prompt-generation) | Medium | Not started |
+| 8 | [Agent personalization](#8-agent-personalization) | Medium (scope assumed — see notes) | Not started |
+| 9 | [More natural conversational flow](#9-more-natural-conversational-flow) | Medium–Large | Not started |
+| 10 | [React frontend](#10-react-frontend) | Large | Not started |
+| 11 | [Make an app out of podo](#11-make-an-app-out-of-podo) | Small–Medium (scope assumed — see notes) | Not started |
+| 12 | [Interactive interruptions](#12-interactive-interruptions) | Large | Not started |
+| 13 | [Sharing platform](#13-sharing-platform) | Large — biggest item here (open questions — see notes) | Not started |
 
-The order groups into six phases. The logic, in one sentence each:
-ship the trivial wins first, then buy speed while the pipeline is
-still simple, then add product breadth that's cheap to build in
-today's Gradio UI, then rework the conversational engine once the
-surrounding feature set has settled, then rebuild the UI once against
-that settled engine, then build the flagship interactive feature on
-top of everything else.
+The order groups into eight phases. The logic, in one sentence each:
+ship the trivial wins first, get podo reachable outside your laptop,
+then buy speed while the pipeline is still simple, then add product
+breadth that's cheap to build in today's Gradio UI, then rework the
+conversational engine once the surrounding feature set has settled,
+then rebuild the UI once against that settled engine (and make it
+installable), then build the flagship single-user interactive
+feature, and only last — once nearly everything else has derisked
+what a shared agent or episode actually looks like — turn podo into a
+multi-user sharing platform.
 
 ---
 
@@ -122,9 +128,45 @@ bigger items are planned.
 
 ---
 
-### Phase 2 — Buy speed while the pipeline is still simple
+### Phase 2 — Get podo off your laptop
 
-#### 4. Faster generation
+#### 4. Deploying podo
+- **Effort:** Small–Medium
+- **Depends on:** —
+- **Assumption made:** you said "no idea how I do this" — I'm
+  assuming this means getting *your own* personal instance reachable
+  outside localhost (from your phone, or to show someone), still
+  single-user, still your own API keys. That's a much smaller,
+  well-trodden problem (docker-compose already exists) than what
+  [#13](#13-sharing-platform) needs (accounts, multi-tenancy,
+  billing). If what's actually wanted is "have this ready to onboard
+  other users," that's really #13, and this item is a lightweight
+  prerequisite for it rather than a substitute.
+- **Why here:** Pure ops work — it doesn't touch the same files as
+  any feature phase, so it can land anytime without conflicting with
+  anything. Doing it early means finding deploy issues (host binding,
+  CORS, storage paths that currently assume local disk, secrets
+  handling) while the codebase is still small, instead of after
+  several more features have added moving parts. It also unlocks
+  real personal value immediately — usable away from your laptop —
+  for comparatively little work.
+- **Watch out for:** a deployed instance is reachable by anyone who
+  finds the URL, and every episode costs real Anthropic + ElevenLabs
+  API usage. Put at least a basic access gate (password / basic auth)
+  in front of it before it's reachable from the internet — this is a
+  much lighter requirement than the full account system #13 will
+  eventually need, and shouldn't be confused with it.
+- **What it involves:** pick a host (a small VPS, or a platform like
+  Fly.io/Railway that runs docker-compose-shaped apps directly), a
+  persistent volume for the SQLite DB + episode audio, env vars for
+  the API keys, a basic access gate, and pointing
+  `PODO_BACKEND_URL`/CORS at the real (non-localhost) origin.
+
+---
+
+### Phase 3 — Buy speed while the pipeline is still simple
+
+#### 5. Faster generation
 - **Effort:** Medium
 - **Depends on:** —
 - **Why here:** `_run_generation()` today is strictly sequential —
@@ -133,25 +175,27 @@ bigger items are planned.
   optimize (pipeline TTS for turn *N* while generating dialogue for
   turn *N+1*; cut the `max_attempts = num_turns * 3` retry waste).
   Doing this now matters because every later item that adds more LLM
-  round-trips per episode — natural conversational flow (#8, more/
-  shorter turns) and especially interactive interruptions (#10, which
-  needs low per-turn latency to feel "live") — inherits whatever
-  latency floor exists here. Fix the floor before building more on
-  top of it, not after.
+  round-trips per episode — natural conversational flow
+  ([#9](#9-more-natural-conversational-flow), more/shorter turns) and
+  especially interactive interruptions
+  ([#12](#12-interactive-interruptions), which needs low per-turn
+  latency to feel "live") — inherits whatever latency floor exists
+  here. Fix the floor before building more on top of it, not after.
 - **What it involves:** Overlap TTS synthesis with next-turn dialogue
   generation, reduce retry waste, consider streaming synthesis.
 
 ---
 
-### Phase 3 — Product breadth (independent, cheap to build in Gradio today)
+### Phase 4 — Product breadth (independent, cheap to build in Gradio today)
 
 These three are self-contained, don't depend on each other except
 where noted, and are all comfortably buildable in the current Gradio
 frontend — a `gr.File` drop zone or an extra textbox is a few lines.
-Building them now, before the React rewrite (#9), means they get
-built once instead of built in Gradio and then re-ported.
+Building them now, before the React rewrite
+([#10](#10-react-frontend)), means they get built once instead of
+built in Gradio and then re-ported.
 
-#### 5. Document-grounded episodes
+#### 6. Document-grounded episodes
 - **Effort:** Medium–Large
 - **Depends on:** —
 - **Why here:** Biggest standalone product value in the backlog — it
@@ -160,37 +204,39 @@ built once instead of built in Gradio and then re-ported.
   Fully independent of the other items, and the upload UI is cheap in
   Gradio (`gr.File`) right now; a custom drop zone is more work to
   build well from scratch in React later, so there's a real cost to
-  deferring this past #9.
+  deferring this past #10.
 - **What it involves:** Upload endpoint + storage for the source
   file, PDF text extraction (e.g. `pypdf`), chunking for
   token-limit-sized context, feeding extracted content into the
   system/topic prompt in `generate_turn()`.
 
-#### 6. AI-assisted prompt generation
+#### 7. AI-assisted prompt generation
 - **Effort:** Medium
 - **Depends on:** —
 - **Why here:** Standalone addition to the existing Agent Lab tab;
   reuses the same Anthropic client pattern already in `generation.py`
   for a new "draft a persona prompt from keywords" call. Sequenced
-  next to #7 because both touch the agent-creation form — doing them
+  next to #8 because both touch the agent-creation form — doing them
   in the same pass avoids touching that UI twice.
 - **What it involves:** New endpoint (e.g. `POST /agents/generate`)
   that takes keywords/traits and returns a drafted persona prompt;
   Agent Lab flow to review/edit the draft before saving.
 
-#### 7. Agent personalization
+#### 8. Agent personalization
 - **Effort:** Medium, **but scope is genuinely ambiguous — flagging
   the assumption below rather than guessing silently and building the
   wrong thing.**
-- **Depends on:** Loose synergy with #6 (same form), not a hard
+- **Depends on:** Loose synergy with #7 (same form), not a hard
   dependency.
 - **Assumption made:** The request says "extra personal touches...
   exact form is still open." I'm assuming this means a small set of
   additional *optional structured fields* on an agent — e.g.
-  backstory, catchphrases/quirks, an avatar image — surfaced in Agent
-  Lab and folded into the system prompt at generation time. That's a
-  schema migration on `agents` (a few nullable columns) plus form
-  fields — Medium effort.
+  backstory, catchphrases/quirks, an avatar/icon image — surfaced in
+  Agent Lab and folded into the system prompt at generation time.
+  That's a schema migration on `agents` (a few nullable columns) plus
+  form fields — Medium effort. This also matters for
+  [#13](#13-sharing-platform) later, which explicitly wants an icon
+  as part of what's shared.
   **If instead this means something like cross-episode memory or
   continuity** (an agent "remembering" past episodes with you), that
   is a materially larger, architecturally different feature (persistent
@@ -204,12 +250,12 @@ built once instead of built in Gradio and then re-ported.
 
 ---
 
-### Phase 4 — Rework the conversational engine
+### Phase 5 — Rework the conversational engine
 
-#### 8. More natural conversational flow
+#### 9. More natural conversational flow
 - **Effort:** Medium–Large
-- **Depends on:** Sequenced after #4 (speed) and Phase 3, before #9
-  and #10.
+- **Depends on:** Sequenced after #5 (speed) and Phase 4, before #10
+  and #12.
 - **Why here:** Today's "turn" is a whole utterance, generated in
   full, then synthesized in full, then handed to the next speaker —
   the model already picks who speaks next (see `NEXT:` in
@@ -219,12 +265,12 @@ built once instead of built in Gradio and then re-ported.
   one-turn-per-utterance to something more granular) and the
   prompting strategy (agents need to be able to decide *mid-context*
   whether to jump in). That's exactly the plumbing that listener
-  interruptions (#10) needs too — #10 is really "let the *listener*
+  interruptions (#12) needs too — #12 is really "let the *listener*
   be one of the interrupters" — so building the general mechanism
-  here first, once, means #10 doesn't have to invent it under
-  pressure later. Sequenced after Phase 3 so those features don't
+  here first, once, means #12 doesn't have to invent it under
+  pressure later. Sequenced after Phase 4 so those features don't
   have to be rebuilt against a moving transcript model; sequenced
-  after speed work (#4) because finer-grained turns mean more, not
+  after speed work (#5) because finer-grained turns mean more, not
   fewer, LLM round-trips per episode.
 - **What it involves:** Rework the turn/transcript data model to
   support sub-turn interjections, rework prompting so agents can
@@ -233,51 +279,125 @@ built once instead of built in Gradio and then re-ported.
 
 ---
 
-### Phase 5 — Rebuild the UI platform
+### Phase 6 — Rebuild the UI platform
 
-#### 9. React frontend
+#### 10. React frontend
 - **Effort:** Large
-- **Depends on:** Best done after Phase 1–4 so the UI is built once
+- **Depends on:** Best done after Phase 1–5 so the UI is built once
   against a settled feature set and the final transcript/turn data
-  model from #8, not rebuilt mid-flight as those land.
+  model from #9, not rebuilt mid-flight as those land.
 - **Why here:** This is a full rewrite of `frontend/app.py`, so
   timing matters more than effort. Doing it too early means every
-  Gradio-cheap feature in Phase 3 gets built twice. Doing it here
+  Gradio-cheap feature in Phase 4 gets built twice. Doing it here
   means: the product surface (uploads, duration, toggles, agent
   fields, AI-assisted prompts) has stabilized, the turn/transcript
-  data model from #8 is final, and the rewrite directly sets up
-  #10 — real-time interruptions need custom audio/mic UI primitives
-  (streaming playback, push-to-talk) that are a much better fit for a
-  custom React app than for Gradio's component set.
+  data model from #9 is final, and the rewrite directly sets up both
+  #11 (a PWA install shell) and #12 — real-time interruptions need
+  custom audio/mic UI primitives (streaming playback, push-to-talk)
+  that are a much better fit for a custom React app than for Gradio's
+  component set.
 - **What it involves:** New React frontend consuming the existing
   FastAPI JSON API (`/episodes`, `/agents`, `/voices`, ...); check
   CORS and audio file serving work cleanly from a separate origin/dev
   server.
 
+#### 11. Make an app out of podo
+- **Effort:** Small–Medium
+- **Depends on:** #10 (React frontend) — hard dependency under the
+  assumed scope below.
+- **Assumption made:** also flagged as "no idea how" — I'm assuming
+  this means an installable **Progressive Web App** (a manifest +
+  service worker layered on the React frontend, so it can be added to
+  a phone's home screen and opens like a standalone app), not a
+  separate native iOS/Android codebase (React Native, Swift, Kotlin),
+  which would be a materially larger, separate project. Confirm which
+  one is actually wanted before picking this up — if it's a real App
+  Store/Play Store app, this needs its own re-scoping.
+- **Why here:** A PWA manifest + service worker is something you add
+  to a real frontend app; it's not practical to retrofit onto
+  Gradio's component model. So it has to follow the React rewrite,
+  and it's small enough to be a direct follow-on in the same phase
+  rather than warranting its own separate slot later.
+- **What it involves:** web app manifest, icons, a service worker (at
+  minimum caching the app shell / Library for offline browsing),
+  "Add to Home Screen" support.
+
 ---
 
-### Phase 6 — The flagship feature
+### Phase 7 — The flagship single-user feature
 
-#### 10. Interactive interruptions
+#### 12. Interactive interruptions
 - **Effort:** Large
-- **Depends on:** #8 (interrupt-aware conversational engine), #9
+- **Depends on:** #9 (interrupt-aware conversational engine), #10
   (custom real-time UI for mic/audio input mid-playback); benefits
-  from #4 (per-turn latency needs to be low for an interruption-and-
+  from #5 (per-turn latency needs to be low for an interruption-and-
   resume to feel natural rather than laggy).
 - **Why here:** The most ambitious and most architecturally
-  open-ended item in the list — it turns podo from "generates an
-  episode you play back" into "a live session you can talk to," which
-  is a different interaction model, not just a new parameter. It's
-  also the item with the most reuse from everything before it: the
-  interrupt/interject mechanism from #8 extends naturally to a human
-  interrupter once it exists, and it needs #9's UI primitives to
-  capture and inject listener input mid-playback. Building it first,
-  without those, means solving all of that from scratch under one
-  feature instead of inheriting it. Natural culmination of the plan.
+  open-ended single-user item in the list — it turns podo from
+  "generates an episode you play back" into "a live session you can
+  talk to," which is a different interaction model, not just a new
+  parameter. It's also the item with the most reuse from everything
+  before it: the interrupt/interject mechanism from #9 extends
+  naturally to a human interrupter once it exists, and it needs #10's
+  UI primitives to capture and inject listener input mid-playback.
+  Building it without those first means solving all of that from
+  scratch under one feature instead of inheriting it.
 - **What it involves:** Live/streaming generation instead of
   generate-then-play, a listener input channel (text or voice) during
   playback, injecting listener input into the transcript context, and
   resuming generation naturally afterward.
+
+---
+
+### Phase 8 — The flagship multi-user feature
+
+#### 13. Sharing platform
+- **Effort:** Large — likely the single largest item on this roadmap,
+  possibly larger than #10 and #12 combined.
+- **Depends on:** #4 (deployed somewhere reachable by others — hard
+  prerequisite, you can't share from localhost), #10 (React frontend
+  — a browse/profile/import UI is a much bigger surface than Gradio's
+  component model comfortably handles); soft dependency on #8 (agent
+  personalization) for the "icon" field this item explicitly wants to
+  share.
+- **Why last:** This is a genuine pivot from "single-user tool" to
+  "multi-user social product," and it carries more open product
+  questions than everything else in this roadmap combined — see
+  below. Those are exactly the kind of decisions worth making once
+  the smaller, well-scoped bets elsewhere in this plan have already
+  shipped and validated the app, rather than upfront. It's also
+  amplified by nearly everything before it: richer agents (from #7,
+  #8) and richer episodes (from #6, #9, #12) are what make other
+  people's libraries actually worth browsing in the first place.
+- **The open question that matters most — flagging rather than
+  deciding silently: who pays for generation?** Every episode
+  currently costs real Anthropic + ElevenLabs API usage against
+  *your* keys. If other people can generate episodes with agents on a
+  platform you host, that's your bill unless something changes. I'm
+  leaning toward **bring-your-own-API-key per user** (each person
+  supplies and stores their own keys, encrypted server-side) over a
+  shared pool, since BYOK avoids you personally underwriting
+  strangers' usage — but a shared pool with quotas is possible too,
+  and is a meaningfully different (bigger) piece of work. **This
+  needs an explicit decision before implementation starts,** not an
+  assumption baked into the build.
+- **Other open questions worth deciding at spec time:** does
+  "download" an agent mean a *copy* (importer can freely edit, no
+  link back to the original) or a *reference* (stays linked, updates
+  from the original flow through)? Defaulting to copy-on-import as
+  the simpler, safer option unless you want the reference model.
+  Also worth at least a lightweight report/hide mechanism once
+  prompts and agents are visible to people other than you.
+- **What it involves (high level — deserves its own follow-up
+  planning pass once picked up):** user accounts/auth; visibility
+  (public/private) on agents and episodes; a browse/directory UI for
+  other users' agents and episodes; a "cast" display on an episode
+  linking back to the agents (and their owners) used in it; an
+  import/"download" flow that copies an agent into your own
+  collection; per-user API key storage if BYOK is confirmed; a more
+  concurrency-friendly data store (SQLite is fine solo, but this is
+  the item where a real multi-user database, e.g. Postgres, starts to
+  matter); basic content moderation/reporting.
 
 ---
 
