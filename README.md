@@ -21,6 +21,9 @@ end-to-end with Claude (dialogue) and ElevenLabs (voice).
 **Planned next:** a listener knowledge-level parameter, so the
 conversation's depth and vocabulary calibrate to what you already know.
 
+See [ROADMAP.md](ROADMAP.md) for the full prioritized feature plan
+and the reasoning behind the order.
+
 ## How it's structured
 
 The app is split into two services:
