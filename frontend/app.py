@@ -56,7 +56,8 @@ def poll_episode(episode_id):
 
 def list_episode_choices():
     episodes = httpx.get(f"{BACKEND_URL}/episodes").json()
-    choices = [(f"#{ep['id']} — {ep['title']} ({ep['status']})", ep["id"]) for ep in episodes]
+    episodes.sort(key=lambda ep: ep["title"].lower())
+    choices = [(f"{ep['title']} ({ep['status']})", ep["id"]) for ep in episodes]
     return gr.Dropdown(choices=choices)
 
 

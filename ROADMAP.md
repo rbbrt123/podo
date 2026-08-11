@@ -287,6 +287,7 @@ _New ideas land here as a single line, no formatting required. Groom
 into the prioritized list above periodically._
 
 - Cancel an in-progress episode generation from the Generate tab (came up while scoping delete episodes — needs a cancel-checkpoint mechanism in `_run_generation()`, probably worth doing     alongside #4 Faster generation since both touch that loop)
+- Episodes can currently have the same title, and there is no way for users to tell them apart in the drop down menu
 
 ## Shipped
 
