@@ -480,6 +480,8 @@ into the prioritized list above periodically._
 - Cancel an in-progress episode generation from the Generate tab (came up while scoping delete episodes — needs a cancel-checkpoint mechanism in `_run_generation()`, probably worth doing alongside #4 Generation reliability since both touch that loop)
 - Episodes can currently have the same title, and there is no way for users to tell them apart in the drop down menu
 - A place where we can see the cast of that particular episode (the agents that participated)
+- Improve introduction prompt of agents
+- Add different languages possible for podcast generation
 
 ## Shipped
 
