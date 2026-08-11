@@ -482,6 +482,7 @@ into the prioritized list above periodically._
 - A place where we can see the cast of that particular episode (the agents that participated)
 - Improve introduction prompt of agents
 - Add different languages possible for podcast generation
+- Add feedback when the introductions are being generated too
 
 ## Shipped
 
