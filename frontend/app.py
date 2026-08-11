@@ -64,12 +64,20 @@ def list_episode_choices():
 def load_episode(episode_id):
     """This runs when the user picks something from that dropdown, to actually load and display an existing episode"""
     if episode_id is None:
-        return None, ""
+        return None, "", gr.Button(interactive=False)
     episode = httpx.get(f"{BACKEND_URL}/episodes/{episode_id}").json()
+    can_delete = episode["status"] not in ("pending", "generating")
     if episode["status"] != "complete":
-        return None, f"Episode is {episode['status']}, no audio yet."
+        return None, f"Episode is {episode['status']}, no audio yet.", gr.Button(interactive=can_delete)
     transcript = "\n\n".join(f"{t['speaker']}: {t['text']}" for t in episode["turns"])
-    return _download_audio(episode_id), transcript
+    return _download_audio(episode_id), transcript, gr.Button(interactive=can_delete)
+
+
+def delete_episode(episode_id):
+    if episode_id is None:
+        return gr.skip(), "No episode selected."
+    httpx.delete(f"{BACKEND_URL}/episodes/{episode_id}").raise_for_status()
+    return list_episode_choices(), "Episode deleted."
 
 
 def _form_state(agent_id, name, prompt, voice_id, is_builtin):
@@ -188,12 +196,19 @@ def build_app():
             episode_dropdown = gr.Dropdown(label="Saved episodes", choices=[])
             library_audio_output = gr.Audio(label="Episode audio")
             library_transcript_output = gr.Textbox(label="Transcript", lines=15, interactive=False)
+            delete_episode_button = gr.Button("Delete", variant="stop")
+            library_status_output = gr.Markdown()
 
             refresh_button.click(fn=list_episode_choices, outputs=episode_dropdown)
             episode_dropdown.change(
                 fn=load_episode,
                 inputs=episode_dropdown,
-                outputs=[library_audio_output, library_transcript_output],
+                outputs=[library_audio_output, library_transcript_output, delete_episode_button],
+            )
+            delete_episode_button.click(
+                fn=delete_episode,
+                inputs=episode_dropdown,
+                outputs=[episode_dropdown, library_status_output],
             )
             demo.load(fn=list_episode_choices, outputs=episode_dropdown)
 
