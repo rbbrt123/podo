@@ -2,6 +2,7 @@ import os
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
+import shutil
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 DATA_DIR = Path(os.getenv("PODO_DATA_DIR", PROJECT_ROOT / "data"))
@@ -152,6 +153,15 @@ def update_agent(agent_id: int, name: str, prompt: str, voice_id: str) -> None:
 def delete_agent(agent_id: int) -> None:
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute("DELETE FROM agents WHERE id = ?", (agent_id,))
+
+
+def delete_episode(episode_id: int) -> None:
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute("DELETE FROM turns WHERE episode_id = ?", (episode_id,))
+        conn.execute("DELETE FROM episodes WHERE id = ?", (episode_id,))
+    episode_dir = EPISODES_DIR / str(episode_id)
+    if episode_dir.exists():
+        shutil.rmtree(episode_dir)
 
 
 def seed_builtin_agents() -> None:

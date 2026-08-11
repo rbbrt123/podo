@@ -65,6 +65,15 @@ def get_episode_audio(episode_id: int):
     return FileResponse(storage.DATA_DIR / episode["audio_path"], media_type="audio/mpeg")
 
 
+@app.delete("/episodes/{episode_id}")
+def delete_episode(episode_id: int):
+    episode = storage.get_episode(episode_id)
+    if episode is None:
+        raise HTTPException(status_code=404, detail="Episode not found")
+    storage.delete_episode(episode_id)
+    return {"status": "deleted"}
+
+
 @app.post("/agents")
 def create_agent(request: AgentRequest):
     agent_id = storage.create_agent(request.name, request.prompt, request.voice_id)
