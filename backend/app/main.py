@@ -21,6 +21,7 @@ class CreateEpisodeRequest(BaseModel):
     topic: str
     num_turns: int = Field(default=6, ge=2, le=20)
     agent_ids: list[int] = Field(min_length=2)
+    intros: bool = True
 
 
 class AgentRequest(BaseModel):
@@ -37,9 +38,9 @@ def create_episode(request: CreateEpisodeRequest, background_tasks: BackgroundTa
     if len({agent["name"] for agent in agents}) != len(agents):
         raise HTTPException(status_code=400, detail="Selected agents must have distinct names")
 
-    episode_id = storage.create_episode(request.title, request.topic, request.num_turns)
+    episode_id = storage.create_episode(request.title, request.topic, request.num_turns, request.intros)
     background_tasks.add_task(
-        generation.generate_episode, episode_id, request.topic, request.num_turns, request.agent_ids
+        generation.generate_episode, episode_id, request.topic, request.num_turns, request.agent_ids, request.intros
         )
     return {"id": episode_id, "status": "pending"}
 

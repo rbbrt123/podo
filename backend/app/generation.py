@@ -81,6 +81,25 @@ def generate_turn(speaker, topic, transcript, agents):
     return parse_response(raw_text)
 
 
+def generate_intro(speaker, agents):
+    system_prompt = (
+        agents[speaker]["prompt"]
+        + "\n\nYou are about to co-host a podcast episode with other speakers. Before the real "
+        + "discussion starts, give a short, one-sentence self-introduction — just your name and a "
+        + "brief sense of your role or angle. Don't mention the episode's topic yet, and don't ask "
+        + "a question — the real discussion starts right after everyone has introduced themselves.\n\n"
+        + "Respond with EXACTLY one sentence, and nothing else — no labels, no extra commentary."
+    )
+
+    response = anthropic_client.messages.create(
+        model="claude-sonnet-5",
+        max_tokens=100,
+        system=system_prompt,
+        messages=[{"role": "user", "content": "Give your one-sentence self-introduction."}],
+    )
+    return "".join(block.text for block in response.content if block.type == "text").strip()
+
+
 def text_to_speech(text, voice_id, filename):
     audio_chunks = elevenlabs_client.text_to_speech.convert(
         text=text,
@@ -94,15 +113,15 @@ def text_to_speech(text, voice_id, filename):
             f.write(chunk)
 
 
-def generate_episode(episode_id: int, topic: str, num_turns: int, agent_ids: list[int]) -> None:
+def generate_episode(episode_id: int, topic: str, num_turns: int, agent_ids: list[int], intros: bool) -> None:
     storage.update_episode_status(episode_id, "generating")
     try:
-        _run_generation(episode_id, topic, num_turns, agent_ids)
+        _run_generation(episode_id, topic, num_turns, agent_ids, intros)
     except Exception as exc:
         storage.update_episode_status(episode_id, "failed", error_message=str(exc))
 
 
-def _run_generation(episode_id: int, topic: str, num_turns: int, agent_ids: list[int]) -> None:
+def _run_generation(episode_id: int, topic: str, num_turns: int, agent_ids: list[int], intros: bool) -> None:
     agents = {}
     for agent_id in agent_ids:
         agent = storage.get_agent(agent_id)
@@ -117,6 +136,21 @@ def _run_generation(episode_id: int, topic: str, num_turns: int, agent_ids: list
     speakers = list(agents)
     current_speaker = speakers[0]
 
+    turn_index = 0
+
+    if intros:
+        for i, speaker in enumerate(speakers):
+            next_intro_speaker = speakers[i + 1] if i + 1 < len(speakers) else speakers[0]
+            line = generate_intro(speaker, agents)
+
+            transcript.append({"speaker": speaker, "text": line, "next_speaker": next_intro_speaker})
+            storage.save_turn(episode_id, turn_index, speaker, line)
+
+            turn_file = episode_dir / f"turn_{turn_index}.mp3"
+            text_to_speech(line, agents[speaker]["voice_id"], str(turn_file))
+            turn_audio_files.append(turn_file)
+            turn_index += 1
+
     successful_turns = 0
     attempts = 0
     max_attempts = num_turns * 3
@@ -128,12 +162,13 @@ def _run_generation(episode_id: int, topic: str, num_turns: int, agent_ids: list
 
         if line.strip() and next_speaker_valid:
             transcript.append({"speaker": current_speaker, "text": line, "next_speaker": next_speaker})
-            storage.save_turn(episode_id, successful_turns, current_speaker, line)
+            storage.save_turn(episode_id, turn_index, current_speaker, line)
 
-            turn_file = episode_dir / f"turn_{successful_turns}.mp3"
+            turn_file = episode_dir / f"turn_{turn_index}.mp3"
             text_to_speech(line, agents[current_speaker]["voice_id"], str(turn_file))
             turn_audio_files.append(turn_file)
 
+            turn_index += 1
             successful_turns += 1
             current_speaker = next_speaker
             storage.update_episode_progress(episode_id, successful_turns)

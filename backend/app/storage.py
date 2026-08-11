@@ -20,6 +20,7 @@ def init_db():
                 title TEXT NOT NULL,
                 topic TEXT NOT NULL,
                 num_turns INTEGER NOT NULL,
+                intros INTEGER NOT NULL DEFAULT 1,
                 current_turn INTEGER NOT NULL DEFAULT 0,
                 status TEXT NOT NULL DEFAULT 'pending',
                 error_message TEXT,
@@ -27,6 +28,9 @@ def init_db():
                 created_at TEXT NOT NULL
             )
         """)
+        existing_columns = {row[1] for row in conn.execute("PRAGMA table_info(episodes)")}
+        if "intros" not in existing_columns:
+            conn.execute("ALTER TABLE episodes ADD COLUMN intros INTEGER NOT NULL DEFAULT 1")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS turns (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -48,12 +52,12 @@ def init_db():
         """)
 
 
-def create_episode(title: str, topic: str, num_turns: int) -> int:
+def create_episode(title: str, topic: str, num_turns: int, intros: bool = True) -> int:
     resolved_title = title.strip() or topic
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.execute(
-            "INSERT INTO episodes (title, topic, num_turns, status, created_at) VALUES (?, ?, ?, 'pending', ?)",
-            (resolved_title, topic, num_turns, datetime.now(timezone.utc).isoformat()),
+            "INSERT INTO episodes (title, topic, num_turns, intros, status, created_at) VALUES (?, ?, ?, ?, 'pending', ?)",
+            (resolved_title, topic, num_turns, int(intros), datetime.now(timezone.utc).isoformat()),
         )
         return cursor.lastrowid
 
