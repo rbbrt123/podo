@@ -70,6 +70,8 @@ def delete_episode(episode_id: int):
     episode = storage.get_episode(episode_id)
     if episode is None:
         raise HTTPException(status_code=404, detail="Episode not found")
+    if episode["status"] in ("pending", "generating"):
+        raise HTTPException(status_code=400, detail="Episode is still generating — cancel it first")
     storage.delete_episode(episode_id)
     return {"status": "deleted"}
 

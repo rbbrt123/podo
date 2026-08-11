@@ -286,7 +286,7 @@ built once instead of built in Gradio and then re-ported.
 _New ideas land here as a single line, no formatting required. Groom
 into the prioritized list above periodically._
 
-_(empty — all current ideas are prioritized above)_
+- Cancel an in-progress episode generation from the Generate tab (came up while scoping delete episodes — needs a cancel-checkpoint mechanism in `_run_generation()`, probably worth doing     alongside #4 Faster generation since both touch that loop)
 
 ## Shipped
 
