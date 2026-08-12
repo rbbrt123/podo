@@ -19,9 +19,9 @@ def init_db():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 title TEXT NOT NULL,
                 topic TEXT NOT NULL,
-                num_turns INTEGER NOT NULL,
+                target_minutes INTEGER NOT NULL,
                 intros INTEGER NOT NULL DEFAULT 1,
-                current_turn INTEGER NOT NULL DEFAULT 0,
+                elapsed_seconds REAL NOT NULL DEFAULT 0,
                 status TEXT NOT NULL DEFAULT 'pending',
                 error_message TEXT,
                 audio_path TEXT,
@@ -52,12 +52,12 @@ def init_db():
         """)
 
 
-def create_episode(title: str, topic: str, num_turns: int, intros: bool = True) -> int:
+def create_episode(title: str, topic: str, target_minutes: int, intros: bool = True) -> int:
     resolved_title = title.strip() or topic
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.execute(
-            "INSERT INTO episodes (title, topic, num_turns, intros, status, created_at) VALUES (?, ?, ?, ?, 'pending', ?)",
-            (resolved_title, topic, num_turns, int(intros), datetime.now(timezone.utc).isoformat()),
+            "INSERT INTO episodes (title, topic, target_minutes, intros, status, created_at) VALUES (?, ?, ?, ?, 'pending', ?)",
+            (resolved_title, topic, target_minutes, int(intros), datetime.now(timezone.utc).isoformat()),
         )
         return cursor.lastrowid
 
@@ -75,11 +75,11 @@ def update_episode_status(
         )
 
 
-def update_episode_progress(episode_id: int, current_turn: int) -> None:
+def update_episode_elapsed(episode_id: int, elapsed_seconds: float) -> None:
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute(
-            "UPDATE episodes SET current_turn = ? WHERE id = ?",
-            (current_turn, episode_id),
+            "UPDATE episodes SET elapsed_seconds = ? WHERE id = ?",
+            (elapsed_seconds, episode_id),
         )
 
 
@@ -95,7 +95,7 @@ def list_episodes() -> list[dict]:
     with sqlite3.connect(DB_PATH) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            "SELECT id, title, topic, num_turns, status, created_at FROM episodes ORDER BY created_at DESC"
+            "SELECT id, title, topic, target_minutes, status, created_at FROM episodes ORDER BY created_at DESC"
         ).fetchall()
         return [dict(row) for row in rows]
 
