@@ -2,6 +2,7 @@ import os
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
+import shutil
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 DATA_DIR = Path(os.getenv("PODO_DATA_DIR", PROJECT_ROOT / "data"))
@@ -18,14 +19,18 @@ def init_db():
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 title TEXT NOT NULL,
                 topic TEXT NOT NULL,
-                num_turns INTEGER NOT NULL,
-                current_turn INTEGER NOT NULL DEFAULT 0,
+                target_minutes INTEGER NOT NULL,
+                intros INTEGER NOT NULL DEFAULT 1,
+                elapsed_seconds REAL NOT NULL DEFAULT 0,
                 status TEXT NOT NULL DEFAULT 'pending',
                 error_message TEXT,
                 audio_path TEXT,
                 created_at TEXT NOT NULL
             )
         """)
+        existing_columns = {row[1] for row in conn.execute("PRAGMA table_info(episodes)")}
+        if "intros" not in existing_columns:
+            conn.execute("ALTER TABLE episodes ADD COLUMN intros INTEGER NOT NULL DEFAULT 1")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS turns (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -47,12 +52,12 @@ def init_db():
         """)
 
 
-def create_episode(title: str, topic: str, num_turns: int) -> int:
+def create_episode(title: str, topic: str, target_minutes: int, intros: bool = True) -> int:
     resolved_title = title.strip() or topic
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.execute(
-            "INSERT INTO episodes (title, topic, num_turns, status, created_at) VALUES (?, ?, ?, 'pending', ?)",
-            (resolved_title, topic, num_turns, datetime.now(timezone.utc).isoformat()),
+            "INSERT INTO episodes (title, topic, target_minutes, intros, status, created_at) VALUES (?, ?, ?, ?, 'pending', ?)",
+            (resolved_title, topic, target_minutes, int(intros), datetime.now(timezone.utc).isoformat()),
         )
         return cursor.lastrowid
 
@@ -70,11 +75,11 @@ def update_episode_status(
         )
 
 
-def update_episode_progress(episode_id: int, current_turn: int) -> None:
+def update_episode_elapsed(episode_id: int, elapsed_seconds: float) -> None:
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute(
-            "UPDATE episodes SET current_turn = ? WHERE id = ?",
-            (current_turn, episode_id),
+            "UPDATE episodes SET elapsed_seconds = ? WHERE id = ?",
+            (elapsed_seconds, episode_id),
         )
 
 
@@ -90,7 +95,7 @@ def list_episodes() -> list[dict]:
     with sqlite3.connect(DB_PATH) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            "SELECT id, title, topic, num_turns, status, created_at FROM episodes ORDER BY created_at DESC"
+            "SELECT id, title, topic, target_minutes, status, created_at FROM episodes ORDER BY created_at DESC"
         ).fetchall()
         return [dict(row) for row in rows]
 
@@ -152,6 +157,15 @@ def update_agent(agent_id: int, name: str, prompt: str, voice_id: str) -> None:
 def delete_agent(agent_id: int) -> None:
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute("DELETE FROM agents WHERE id = ?", (agent_id,))
+
+
+def delete_episode(episode_id: int) -> None:
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute("DELETE FROM turns WHERE episode_id = ?", (episode_id,))
+        conn.execute("DELETE FROM episodes WHERE id = ?", (episode_id,))
+    episode_dir = EPISODES_DIR / str(episode_id)
+    if episode_dir.exists():
+        shutil.rmtree(episode_dir)
 
 
 def seed_builtin_agents() -> None:

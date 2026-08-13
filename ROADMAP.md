@@ -1,6 +1,6 @@
 # Roadmap
 
-_Last reviewed: 2026-08-10_
+_Last reviewed: 2026-08-11_
 
 This is the living plan for podo: what's next, in what order, and why.
 It replaces the phone notes app as the source of truth for feature
@@ -18,6 +18,10 @@ just what's planned but why it's sequenced the way it is.
   progress`, and open a branch/PR as usual (this project already uses
   feature branches + PRs against `main` — link the PR to the relevant
   section here in the description).
+- **Finished but not merged yet?** Set Status to `Awaiting merge` —
+  distinct from `Shipped`, which (per the rule below) means the PR is
+  actually in `main`. Don't jump straight to `Shipped` just because
+  the code exists on a branch.
 - **Shipped something?** Move its entry to [Shipped](#shipped) with a
   link to the merge commit or PR, and check whether the README's
   "Currently working" / "Planned next" summary needs a one-line
@@ -59,11 +63,11 @@ Worth recording so this choice doesn't look like an accident:
 
 | # | Feature | Effort | Status |
 |---|---|---|---|
-| 1 | [Delete episodes](#1-delete-episodes) | Small | Not started |
+| 1 | [Delete episodes](#1-delete-episodes) | Small | Awaiting merge |
 | 2 | [Optional self-introductions toggle](#2-optional-self-introductions-toggle) | Small | Not started |
 | 3 | [Duration-based length](#3-duration-based-length) | Small–Medium | Not started |
-| 4 | [Deploying podo](#4-deploying-podo) | Small–Medium (scope assumed — see notes) | Not started |
-| 5 | [Faster generation](#5-faster-generation) | Medium | Not started |
+| 4 | [Generation reliability](#4-generation-reliability) | Medium–Large | Not started |
+| 5 | [Deploying podo](#5-deploying-podo) | Small–Medium (scope assumed — see notes) | Not started |
 | 6 | [Document-grounded episodes](#6-document-grounded-episodes) | Medium–Large | Not started |
 | 7 | [AI-assisted prompt generation](#7-ai-assisted-prompt-generation) | Medium | Not started |
 | 8 | [Agent personalization](#8-agent-personalization) | Medium (scope assumed — see notes) | Not started |
@@ -74,15 +78,17 @@ Worth recording so this choice doesn't look like an accident:
 | 13 | [Sharing platform](#13-sharing-platform) | Large — biggest item here (open questions — see notes) | Not started |
 
 The order groups into eight phases. The logic, in one sentence each:
-ship the trivial wins first, get podo reachable outside your laptop,
-then buy speed while the pipeline is still simple, then add product
-breadth that's cheap to build in today's Gradio UI, then rework the
-conversational engine once the surrounding feature set has settled,
-then rebuild the UI once against that settled engine (and make it
-installable), then build the flagship single-user interactive
-feature, and only last — once nearly everything else has derisked
-what a shared agent or episode actually looks like — turn podo into a
-multi-user sharing platform.
+ship the trivial wins first, then fix the generation pipeline's
+reliability (and, folded into the same item, its speed) because the
+product isn't usable while it's silently dropping or misattributing
+turns, then get podo reachable outside your laptop now that it
+actually works, then add product breadth that's cheap to build in
+today's Gradio UI, then rework the conversational engine once the
+surrounding feature set has settled, then rebuild the UI once against
+that settled engine (and make it installable), then build the
+flagship single-user interactive feature, and only last — once nearly
+everything else has derisked what a shared agent or episode actually
+looks like — turn podo into a multi-user sharing platform.
 
 ---
 
@@ -128,11 +134,106 @@ bigger items are planned.
 
 ---
 
-### Phase 2 — Get podo off your laptop
+### Phase 2 — Fix generation reliability (folds in speed)
 
-#### 4. Deploying podo
-- **Effort:** Small–Medium
+#### 4. Generation reliability
+- **Effort:** Medium–Large (folds in the former "Faster generation"
+  item and a host/moderator turn-taking redesign — see *Why here*)
 - **Depends on:** —
+- **Why here:** Real-world testing surfaced two correctness bugs, not
+  just a speed problem: turns are sometimes skipped entirely, and an
+  agent's line in the transcript sometimes doesn't match what's
+  actually in the generated audio — like it's responding to a turn
+  that was never synthesized. The product isn't usable like this, so
+  this jumps ahead of everything except the already-scoped Phase 1
+  work, including ahead of deploying ([#5](#5-deploying-podo)) —
+  there's no point making a broken pipeline reachable from more
+  places. This item also absorbs the former "Faster generation" item:
+  both live in the exact same code (`_run_generation()` /
+  `generate_turn()` in `backend/app/generation.py`), and it isn't
+  safe to start overlapping TTS with next-turn generation (the speed
+  fix) on top of a retry/validation loop that's still silently
+  dropping and misattributing turns — that would just make failures
+  harder to diagnose. If reliability and speed ever trade off against
+  each other, reliability wins.
+
+  Also folds in the host/moderator idea raised during
+  [#3](#3-duration-based-length): introducing an obligatory "host"
+  agent who drives the conversation — asking each participant quick
+  questions, controlling pacing, owning the intro/outro — instead of
+  today's fully peer-to-peer model where the LLM itself picks the
+  next speaker each turn (`NEXT:` field, `generate_turn()` in
+  `backend/app/generation.py`). That's a real restructuring of
+  turn-taking, not a small addition, so it doesn't belong in #3 — it
+  belongs here because it touches the exact same loop
+  (`_run_generation()`) this item is already reworking, and it's
+  safer to design a new turn-taking model on top of a loop that's
+  already trustworthy than on one still silently dropping and
+  misattributing turns.
+- **Hypothesis (root cause) — diagnosed, not yet fixed:**
+  `_run_generation()` accepts a turn only if the line is non-empty
+  *and* `next_speaker` is an exact, case-sensitive match against an
+  agent's display name (`next_speaker in agents and next_speaker !=
+  current_speaker`). If either check fails, the **entire** turn is
+  discarded — not saved via `storage.save_turn`, not appended to
+  `transcript`, never sent to `text_to_speech` — silently, with no
+  logging and no distinction from "the model actually degenerated."
+  On discard, `current_speaker` is reassigned with
+  `random.choice(...)` to *any* other agent, without regard for who
+  the last **accepted** turn's `NEXT:` field actually named. That's a
+  plausible source of both symptoms:
+  - **Skipped turns:** the retry budget (`max_attempts = num_turns *
+    3`) is enforced by just exiting the `while` loop — there's no
+    check afterward for whether `successful_turns` actually reached
+    `num_turns`. If the budget runs out early, generation proceeds
+    straight to stitching, exporting, and marking the episode
+    `complete` anyway, with fewer turns than requested and no error
+    or signal anywhere that this happened.
+  - **Mismatched line/audio:** because the substitute next speaker is
+    chosen randomly rather than deterministically, a real, accepted
+    turn can end with e.g. `NEXT: Carol`, and the turn that actually
+    gets kept next can come from a different, randomly-picked agent
+    instead — because Carol's attempt (if one even happened) was
+    silently discarded first. The substitute speaker generates cold,
+    with no idea a swap occurred, into a conversational slot the
+    transcript is still primed for someone else to fill — which
+    matches the "responding to a turn that was never synthesized"
+    feel exactly.
+  - The exact-string `next_speaker` match likely makes this worse
+    than "the model rarely messes up the format": any deviation from
+    the literal expected name (trailing punctuation, an honorific,
+    slightly different casing) is treated identically to a genuinely
+    broken response, discarding an otherwise perfectly good line.
+  - Not yet confirmed against real generation logs — the first item
+    under *What it involves* is meant to verify this before designing
+    a fix.
+- **What it involves:** Log rejected attempts (raw model output + why
+  each was rejected) to confirm the hypothesis above; stop discarding
+  a good line just because `next_speaker` parsing missed — validate
+  and repair the two independently instead of failing the whole turn;
+  make `next_speaker` matching tolerant of formatting noise; turn
+  attempts-exhaustion into a real, visible failure (or a clearly
+  labeled short episode) instead of a silent `complete`. Once the loop
+  is trustworthy, layer in the former speed work: overlap TTS
+  synthesis with next-turn dialogue generation, cut the remaining
+  retry waste, consider streaming synthesis. Once both the
+  reliability and speed work are done, design and add the
+  host/moderator role: a designated agent drives turn order and
+  directly questions each participant, replacing today's peer-picked
+  `NEXT:` selection.
+
+---
+
+### Phase 3 — Get podo off your laptop
+
+#### 5. Deploying podo
+- **Effort:** Small–Medium (scope assumed — see notes)
+- **Depends on:** [#4](#4-generation-reliability) (generation
+  reliability) — deploying a pipeline that's known to silently drop
+  or misattribute turns just puts a broken product in front of more
+  situations, including yourself away from a dev environment where
+  problems are easy to notice and iterate on. Fix the pipeline first,
+  then make it reachable.
 - **Assumption made:** you said "no idea how I do this" — I'm
   assuming this means getting *your own* personal instance reachable
   outside localhost (from your phone, or to show someone), still
@@ -143,13 +244,15 @@ bigger items are planned.
   other users," that's really #13, and this item is a lightweight
   prerequisite for it rather than a substitute.
 - **Why here:** Pure ops work — it doesn't touch the same files as
-  any feature phase, so it can land anytime without conflicting with
-  anything. Doing it early means finding deploy issues (host binding,
-  CORS, storage paths that currently assume local disk, secrets
-  handling) while the codebase is still small, instead of after
-  several more features have added moving parts. It also unlocks
-  real personal value immediately — usable away from your laptop —
-  for comparatively little work.
+  any feature phase, so it can land anytime relative to the *feature*
+  work without conflicting with anything. It's sequenced right after
+  generation reliability specifically, not earlier: there's little
+  point finding deploy issues (host binding, CORS, storage paths that
+  currently assume local disk, secrets handling) on top of a pipeline
+  that isn't correct yet. Once reliability is fixed, doing this early
+  — before the bigger feature phases — still holds: it unlocks real
+  personal value immediately, usable away from your laptop, for
+  comparatively little work.
 - **Watch out for:** a deployed instance is reachable by anyone who
   finds the URL, and every episode costs real Anthropic + ElevenLabs
   API usage. Put at least a basic access gate (password / basic auth)
@@ -164,28 +267,6 @@ bigger items are planned.
 
 ---
 
-### Phase 3 — Buy speed while the pipeline is still simple
-
-#### 5. Faster generation
-- **Effort:** Medium
-- **Depends on:** —
-- **Why here:** `_run_generation()` today is strictly sequential —
-  generate a line, then synthesize it, then generate the next line —
-  with no overlap. That's the easiest version of the pipeline to
-  optimize (pipeline TTS for turn *N* while generating dialogue for
-  turn *N+1*; cut the `max_attempts = num_turns * 3` retry waste).
-  Doing this now matters because every later item that adds more LLM
-  round-trips per episode — natural conversational flow
-  ([#9](#9-more-natural-conversational-flow), more/shorter turns) and
-  especially interactive interruptions
-  ([#12](#12-interactive-interruptions), which needs low per-turn
-  latency to feel "live") — inherits whatever latency floor exists
-  here. Fix the floor before building more on top of it, not after.
-- **What it involves:** Overlap TTS synthesis with next-turn dialogue
-  generation, reduce retry waste, consider streaming synthesis.
-
----
-
 ### Phase 4 — Product breadth (independent, cheap to build in Gradio today)
 
 These three are self-contained, don't depend on each other except
@@ -193,7 +274,10 @@ where noted, and are all comfortably buildable in the current Gradio
 frontend — a `gr.File` drop zone or an extra textbox is a few lines.
 Building them now, before the React rewrite
 ([#10](#10-react-frontend)), means they get built once instead of
-built in Gradio and then re-ported.
+built in Gradio and then re-ported. Landing after
+[#4](#4-generation-reliability) also means they're layering more
+prompt content onto a generation loop that's actually trustworthy,
+instead of onto one that's still silently dropping turns.
 
 #### 6. Document-grounded episodes
 - **Effort:** Medium–Large
@@ -254,8 +338,8 @@ built in Gradio and then re-ported.
 
 #### 9. More natural conversational flow
 - **Effort:** Medium–Large
-- **Depends on:** Sequenced after #5 (speed) and Phase 4, before #10
-  and #12.
+- **Depends on:** Sequenced after [#4](#4-generation-reliability)
+  (reliability/speed) and Phase 4, before #10 and #12.
 - **Why here:** Today's "turn" is a whole utterance, generated in
   full, then synthesized in full, then handed to the next speaker —
   the model already picks who speaks next (see `NEXT:` in
@@ -270,8 +354,10 @@ built in Gradio and then re-ported.
   here first, once, means #12 doesn't have to invent it under
   pressure later. Sequenced after Phase 4 so those features don't
   have to be rebuilt against a moving transcript model; sequenced
-  after speed work (#5) because finer-grained turns mean more, not
-  fewer, LLM round-trips per episode.
+  after [#4](#4-generation-reliability) because a finer-grained turn
+  model would inherit any correctness issues still lurking in the
+  retry/validation loop at an even finer grain, and because more,
+  smaller turns mean more, not fewer, LLM round-trips per episode.
 - **What it involves:** Rework the turn/transcript data model to
   support sub-turn interjections, rework prompting so agents can
   decide to interrupt given partial context, rework audio stitching
@@ -330,8 +416,10 @@ built in Gradio and then re-ported.
 - **Effort:** Large
 - **Depends on:** #9 (interrupt-aware conversational engine), #10
   (custom real-time UI for mic/audio input mid-playback); benefits
-  from #5 (per-turn latency needs to be low for an interruption-and-
-  resume to feel natural rather than laggy).
+  from [#4](#4-generation-reliability) (per-turn latency needs to be
+  low for an interruption-and-resume to feel natural rather than
+  laggy, and a live feature is exactly where a dropped or
+  misattributed turn would be most jarring).
 - **Why here:** The most ambitious and most architecturally
   open-ended single-user item in the list — it turns podo from
   "generates an episode you play back" into "a live session you can
@@ -354,8 +442,9 @@ built in Gradio and then re-ported.
 #### 13. Sharing platform
 - **Effort:** Large — likely the single largest item on this roadmap,
   possibly larger than #10 and #12 combined.
-- **Depends on:** #4 (deployed somewhere reachable by others — hard
-  prerequisite, you can't share from localhost), #10 (React frontend
+- **Depends on:** [#5](#5-deploying-podo) (deployed somewhere
+  reachable by others — hard prerequisite, you can't share from
+  localhost), #10 (React frontend
   — a browse/profile/import UI is a much bigger surface than Gradio's
   component model comfortably handles); soft dependency on #8 (agent
   personalization) for the "icon" field this item explicitly wants to
@@ -406,7 +495,12 @@ built in Gradio and then re-ported.
 _New ideas land here as a single line, no formatting required. Groom
 into the prioritized list above periodically._
 
-_(empty — all current ideas are prioritized above)_
+- Cancel an in-progress episode generation from the Generate tab (came up while scoping delete episodes — needs a cancel-checkpoint mechanism in `_run_generation()`, probably worth doing alongside #4 Generation reliability since both touch that loop)
+- Episodes can currently have the same title, and there is no way for users to tell them apart in the drop down menu
+- A place where we can see the cast of that particular episode (the agents that participated)
+- Improve introduction prompt of agents
+- Add different languages possible for podcast generation
+- Add feedback when the introductions are being generated too
 
 ## Shipped
 

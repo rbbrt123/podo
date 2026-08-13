@@ -19,8 +19,9 @@ app = FastAPI(lifespan=lifespan)
 class CreateEpisodeRequest(BaseModel):
     title: str = ""
     topic: str
-    num_turns: int = Field(default=6, ge=2, le=20)
+    target_minutes: int = Field(default=5, ge=2, le=30)
     agent_ids: list[int] = Field(min_length=2)
+    intros: bool = True
 
 
 class AgentRequest(BaseModel):
@@ -37,9 +38,9 @@ def create_episode(request: CreateEpisodeRequest, background_tasks: BackgroundTa
     if len({agent["name"] for agent in agents}) != len(agents):
         raise HTTPException(status_code=400, detail="Selected agents must have distinct names")
 
-    episode_id = storage.create_episode(request.title, request.topic, request.num_turns)
+    episode_id = storage.create_episode(request.title, request.topic, request.target_minutes, request.intros)
     background_tasks.add_task(
-        generation.generate_episode, episode_id, request.topic, request.num_turns, request.agent_ids
+        generation.generate_episode, episode_id, request.topic, request.target_minutes, request.agent_ids, request.intros
         )
     return {"id": episode_id, "status": "pending"}
 
@@ -63,6 +64,17 @@ def get_episode_audio(episode_id: int):
     if episode is None or episode["audio_path"] is None:
         raise HTTPException(status_code=404, detail="Audio not available")
     return FileResponse(storage.DATA_DIR / episode["audio_path"], media_type="audio/mpeg")
+
+
+@app.delete("/episodes/{episode_id}")
+def delete_episode(episode_id: int):
+    episode = storage.get_episode(episode_id)
+    if episode is None:
+        raise HTTPException(status_code=404, detail="Episode not found")
+    if episode["status"] in ("pending", "generating"):
+        raise HTTPException(status_code=400, detail="Episode is still generating — cancel it first")
+    storage.delete_episode(episode_id)
+    return {"status": "deleted"}
 
 
 @app.post("/agents")

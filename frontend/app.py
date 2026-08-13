@@ -18,17 +18,16 @@ def _download_audio(episode_id):
     return tmp.name
 
 
-def start_generation(title, topic, num_turns, agent_ids):
+def start_generation(title, topic, target_minutes, agent_ids, intros):
     """Kicks off generation and starts the polling timer."""
     if not topic.strip():
         return None, "Please enter a topic.", gr.skip(), gr.skip(), gr.Timer(active=False)
     if not agent_ids or len(agent_ids) < 2:
         return None, "Pick at least two agents.", gr.skip(), gr.skip(), gr.Timer(active=False)
 
-    total_turns = int(num_turns)
     response = httpx.post(
         f"{BACKEND_URL}/episodes",
-        json={"title": title, "topic": topic, "num_turns": total_turns, "agent_ids": agent_ids},
+        json={"title": title, "topic": topic, "target_minutes": int(target_minutes), "agent_ids": agent_ids, "intros": intros},
     )
     response.raise_for_status()
     episode_id = response.json()["id"]
@@ -43,32 +42,42 @@ def poll_episode(episode_id):
 
     episode = httpx.get(f"{BACKEND_URL}/episodes/{episode_id}").json()
     status = episode["status"]
+    elapsed_min = episode["elapsed_seconds"] / 60
 
     if status == "complete":
         transcript = "\n\n".join(f"{t['speaker']}: {t['text']}" for t in episode["turns"])
-        return f"Episode #{episode_id}: done!", _download_audio(episode_id), transcript, gr.Timer(active=False)
+        return f"Episode #{episode_id}: done! ({elapsed_min:.1f} min)", _download_audio(episode_id), transcript, gr.Timer(active=False)
     elif status == "failed":
         return f"Episode #{episode_id} failed: {episode['error_message']}", gr.skip(), gr.skip(), gr.Timer(active=False)
     else:
-        status_text = f"Episode #{episode_id}: {status}... ({episode['current_turn']}/{episode['num_turns']} turns)"
+        status_text = f"Episode #{episode_id}: {status}... ({elapsed_min:.1f}/{episode['target_minutes']} min)"
         return status_text, gr.skip(), gr.skip(), gr.skip()
 
 
 def list_episode_choices():
     episodes = httpx.get(f"{BACKEND_URL}/episodes").json()
-    choices = [(f"#{ep['id']} — {ep['title']} ({ep['status']})", ep["id"]) for ep in episodes]
+    episodes.sort(key=lambda ep: ep["title"].lower())
+    choices = [(f"{ep['title']} ({ep['status']})", ep["id"]) for ep in episodes]
     return gr.Dropdown(choices=choices)
 
 
 def load_episode(episode_id):
     """This runs when the user picks something from that dropdown, to actually load and display an existing episode"""
     if episode_id is None:
-        return None, ""
+        return None, "", gr.Button(interactive=False)
     episode = httpx.get(f"{BACKEND_URL}/episodes/{episode_id}").json()
+    can_delete = episode["status"] not in ("pending", "generating")
     if episode["status"] != "complete":
-        return None, f"Episode is {episode['status']}, no audio yet."
+        return None, f"Episode is {episode['status']}, no audio yet.", gr.Button(interactive=can_delete)
     transcript = "\n\n".join(f"{t['speaker']}: {t['text']}" for t in episode["turns"])
-    return _download_audio(episode_id), transcript
+    return _download_audio(episode_id), transcript, gr.Button(interactive=can_delete)
+
+
+def delete_episode(episode_id):
+    if episode_id is None:
+        return gr.skip(), "No episode selected."
+    httpx.delete(f"{BACKEND_URL}/episodes/{episode_id}").raise_for_status()
+    return list_episode_choices(), "Episode deleted."
 
 
 def _form_state(agent_id, name, prompt, voice_id, is_builtin):
@@ -156,7 +165,8 @@ def build_app():
             with gr.Row():
                 agent_checkboxes = gr.CheckboxGroup(label="Agents (pick at least two)", choices=[])
                 refresh_generate_agents_button = gr.Button("Refresh agents")
-            num_turns_input = gr.Slider(minimum=2, maximum=20, value=6, step=1, label="Number of turns")
+            target_minutes_input = gr.Slider(minimum=2, maximum=30, value=5, step=1, label="Length (minutes)")
+            intros_checkbox = gr.Checkbox(label="Agents introduce themselves first", value=True)
             generate_button = gr.Button("Generate episode")
             status_output = gr.Markdown()
             audio_output = gr.Audio(label="Episode audio")
@@ -167,7 +177,7 @@ def build_app():
 
         generate_button.click(
                 fn=start_generation,
-                inputs=[title_input, topic_input, num_turns_input, agent_checkboxes],
+                inputs=[title_input, topic_input, target_minutes_input, agent_checkboxes, intros_checkbox],
                 outputs=[episode_id_state, status_output, audio_output, transcript_output, poll_timer],
                 show_progress="hidden",
             )
@@ -187,12 +197,19 @@ def build_app():
             episode_dropdown = gr.Dropdown(label="Saved episodes", choices=[])
             library_audio_output = gr.Audio(label="Episode audio")
             library_transcript_output = gr.Textbox(label="Transcript", lines=15, interactive=False)
+            delete_episode_button = gr.Button("Delete", variant="stop")
+            library_status_output = gr.Markdown()
 
             refresh_button.click(fn=list_episode_choices, outputs=episode_dropdown)
             episode_dropdown.change(
                 fn=load_episode,
                 inputs=episode_dropdown,
-                outputs=[library_audio_output, library_transcript_output],
+                outputs=[library_audio_output, library_transcript_output, delete_episode_button],
+            )
+            delete_episode_button.click(
+                fn=delete_episode,
+                inputs=episode_dropdown,
+                outputs=[episode_dropdown, library_status_output],
             )
             demo.load(fn=list_episode_choices, outputs=episode_dropdown)
 
