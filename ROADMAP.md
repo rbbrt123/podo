@@ -169,7 +169,15 @@ bigger items are planned.
   (`_run_generation()`) this item is already reworking, and it's
   safer to design a new turn-taking model on top of a loop that's
   already trustworthy than on one still silently dropping and
-  misattributing turns.
+  misattributing turns. **The host/moderator design itself is now
+  locked** — see
+  [ADR-0001](docs/adr/0001-structural-host-role-for-turn-taking.md):
+  a per-episode `is_host`-eligible agent, selected exactly one per
+  episode, with a capped-window turn-taking mechanism (guests can
+  still riff via `NEXT:` but the loop forces control back to host
+  after a small cap of consecutive guest turns) and host-owned
+  intro/outro. Still gated on the reliability + speed work below
+  landing first.
 - **Hypothesis (root cause) — diagnosed, not yet fixed:**
   `_run_generation()` accepts a turn only if the line is non-empty
   *and* `next_speaker` is an exact, case-sensitive match against an
@@ -217,10 +225,13 @@ bigger items are planned.
   is trustworthy, layer in the former speed work: overlap TTS
   synthesis with next-turn dialogue generation, cut the remaining
   retry waste, consider streaming synthesis. Once both the
-  reliability and speed work are done, design and add the
-  host/moderator role: a designated agent drives turn order and
-  directly questions each participant, replacing today's peer-picked
-  `NEXT:` selection.
+  reliability and speed work are done, build the host/moderator role
+  per [ADR-0001](docs/adr/0001-structural-host-role-for-turn-taking.md)
+  (design already locked, not an open question anymore): an `is_host`
+  column on `agents`, a required host pick at episode creation
+  restricted to host-eligible agents among those selected, a
+  capped-window turn-taking mechanism in `_run_generation()`, and
+  host-owned intro/outro.
 
 ---
 
