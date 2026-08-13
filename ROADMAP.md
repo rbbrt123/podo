@@ -138,7 +138,7 @@ bigger items are planned.
 
 #### 4. Generation reliability
 - **Effort:** Medium–Large (folds in the former "Faster generation"
-  item — see *Why here*)
+  item and a host/moderator turn-taking redesign — see *Why here*)
 - **Depends on:** —
 - **Why here:** Real-world testing surfaced two correctness bugs, not
   just a speed problem: turns are sometimes skipped entirely, and an
@@ -156,6 +156,20 @@ bigger items are planned.
   dropping and misattributing turns — that would just make failures
   harder to diagnose. If reliability and speed ever trade off against
   each other, reliability wins.
+
+  Also folds in the host/moderator idea raised during
+  [#3](#3-duration-based-length): introducing an obligatory "host"
+  agent who drives the conversation — asking each participant quick
+  questions, controlling pacing, owning the intro/outro — instead of
+  today's fully peer-to-peer model where the LLM itself picks the
+  next speaker each turn (`NEXT:` field, `generate_turn()` in
+  `backend/app/generation.py`). That's a real restructuring of
+  turn-taking, not a small addition, so it doesn't belong in #3 — it
+  belongs here because it touches the exact same loop
+  (`_run_generation()`) this item is already reworking, and it's
+  safer to design a new turn-taking model on top of a loop that's
+  already trustworthy than on one still silently dropping and
+  misattributing turns.
 - **Hypothesis (root cause) — diagnosed, not yet fixed:**
   `_run_generation()` accepts a turn only if the line is non-empty
   *and* `next_speaker` is an exact, case-sensitive match against an
@@ -202,7 +216,11 @@ bigger items are planned.
   labeled short episode) instead of a silent `complete`. Once the loop
   is trustworthy, layer in the former speed work: overlap TTS
   synthesis with next-turn dialogue generation, cut the remaining
-  retry waste, consider streaming synthesis.
+  retry waste, consider streaming synthesis. Once both the
+  reliability and speed work are done, design and add the
+  host/moderator role: a designated agent drives turn order and
+  directly questions each participant, replacing today's peer-picked
+  `NEXT:` selection.
 
 ---
 
