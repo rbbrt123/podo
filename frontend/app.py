@@ -18,17 +18,16 @@ def _download_audio(episode_id):
     return tmp.name
 
 
-def start_generation(title, topic, num_turns, agent_ids, intros):
+def start_generation(title, topic, target_minutes, agent_ids, intros):
     """Kicks off generation and starts the polling timer."""
     if not topic.strip():
         return None, "Please enter a topic.", gr.skip(), gr.skip(), gr.Timer(active=False)
     if not agent_ids or len(agent_ids) < 2:
         return None, "Pick at least two agents.", gr.skip(), gr.skip(), gr.Timer(active=False)
 
-    total_turns = int(num_turns)
     response = httpx.post(
         f"{BACKEND_URL}/episodes",
-        json={"title": title, "topic": topic, "num_turns": total_turns, "agent_ids": agent_ids, "intros": intros},
+        json={"title": title, "topic": topic, "target_minutes": int(target_minutes), "agent_ids": agent_ids, "intros": intros},
     )
     response.raise_for_status()
     episode_id = response.json()["id"]
@@ -43,14 +42,15 @@ def poll_episode(episode_id):
 
     episode = httpx.get(f"{BACKEND_URL}/episodes/{episode_id}").json()
     status = episode["status"]
+    elapsed_min = episode["elapsed_seconds"] / 60
 
     if status == "complete":
         transcript = "\n\n".join(f"{t['speaker']}: {t['text']}" for t in episode["turns"])
-        return f"Episode #{episode_id}: done!", _download_audio(episode_id), transcript, gr.Timer(active=False)
+        return f"Episode #{episode_id}: done! ({elapsed_min:.1f} min)", _download_audio(episode_id), transcript, gr.Timer(active=False)
     elif status == "failed":
         return f"Episode #{episode_id} failed: {episode['error_message']}", gr.skip(), gr.skip(), gr.Timer(active=False)
     else:
-        status_text = f"Episode #{episode_id}: {status}... ({episode['current_turn']}/{episode['num_turns']} turns)"
+        status_text = f"Episode #{episode_id}: {status}... ({elapsed_min:.1f}/{episode['target_minutes']} min)"
         return status_text, gr.skip(), gr.skip(), gr.skip()
 
 
@@ -165,7 +165,7 @@ def build_app():
             with gr.Row():
                 agent_checkboxes = gr.CheckboxGroup(label="Agents (pick at least two)", choices=[])
                 refresh_generate_agents_button = gr.Button("Refresh agents")
-            num_turns_input = gr.Slider(minimum=2, maximum=20, value=6, step=1, label="Number of turns")
+            target_minutes_input = gr.Slider(minimum=2, maximum=30, value=5, step=1, label="Length (minutes)")
             intros_checkbox = gr.Checkbox(label="Agents introduce themselves first", value=True)
             generate_button = gr.Button("Generate episode")
             status_output = gr.Markdown()
@@ -177,7 +177,7 @@ def build_app():
 
         generate_button.click(
                 fn=start_generation,
-                inputs=[title_input, topic_input, num_turns_input, agent_checkboxes, intros_checkbox],
+                inputs=[title_input, topic_input, target_minutes_input, agent_checkboxes, intros_checkbox],
                 outputs=[episode_id_state, status_output, audio_output, transcript_output, poll_timer],
                 show_progress="hidden",
             )
