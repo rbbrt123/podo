@@ -222,6 +222,8 @@ def _run_generation(episode_id: int, topic: str, target_minutes: int, agent_ids:
         turn_file = episode_dir / f"turn_{turn_index}.mp3"
         text_to_speech(outro_line, agents[speakers[0]]["voice_id"], str(turn_file))
         turn_audio_files.append(turn_file)
+        elapsed_seconds += AudioSegment.from_mp3(str(turn_file)).duration_seconds
+        storage.update_episode_elapsed(episode_id, elapsed_seconds)
 
     pause = AudioSegment.silent(duration=500)
     episode_audio = AudioSegment.empty()
