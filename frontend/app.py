@@ -46,7 +46,13 @@ def poll_episode(episode_id):
 
     if status == "complete":
         transcript = "\n\n".join(f"{t['speaker']}: {t['text']}" for t in episode["turns"])
-        return f"Episode #{episode_id}: done! ({elapsed_min:.1f} min)", _download_audio(episode_id), transcript, gr.Timer(active=False)
+        status_text = f"Episode #{episode_id}: done! ({elapsed_min:.1f} min)"
+        if episode.get("error_message"):
+            status_text = (
+                f"Episode #{episode_id}: done, but short — "
+                f"{elapsed_min:.1f}/{episode['target_minutes']} min. {episode['error_message']}"
+            )
+        return status_text, _download_audio(episode_id), transcript, gr.Timer(active=False)
     elif status == "failed":
         return f"Episode #{episode_id} failed: {episode['error_message']}", gr.skip(), gr.skip(), gr.Timer(active=False)
     else:
@@ -64,13 +70,13 @@ def list_episode_choices():
 def load_episode(episode_id):
     """This runs when the user picks something from that dropdown, to actually load and display an existing episode"""
     if episode_id is None:
-        return None, "", gr.Button(interactive=False)
+        return None, "", gr.Button(interactive=False), ""
     episode = httpx.get(f"{BACKEND_URL}/episodes/{episode_id}").json()
     can_delete = episode["status"] not in ("pending", "generating")
     if episode["status"] != "complete":
-        return None, f"Episode is {episode['status']}, no audio yet.", gr.Button(interactive=can_delete)
+        return None, f"Episode is {episode['status']}, no audio yet.", gr.Button(interactive=can_delete), ""
     transcript = "\n\n".join(f"{t['speaker']}: {t['text']}" for t in episode["turns"])
-    return _download_audio(episode_id), transcript, gr.Button(interactive=can_delete)
+    return _download_audio(episode_id), transcript, gr.Button(interactive=can_delete), episode.get("error_message") or ""
 
 
 def delete_episode(episode_id):
@@ -204,7 +210,7 @@ def build_app():
             episode_dropdown.change(
                 fn=load_episode,
                 inputs=episode_dropdown,
-                outputs=[library_audio_output, library_transcript_output, delete_episode_button],
+                outputs=[library_audio_output, library_transcript_output, delete_episode_button, library_status_output],
             )
             delete_episode_button.click(
                 fn=delete_episode,

@@ -1,5 +1,6 @@
+import logging
 import os
-import random
+import re
 
 from anthropic import Anthropic
 from elevenlabs.client import ElevenLabs
@@ -10,6 +11,8 @@ from dotenv import load_dotenv
 from app import storage
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 anthropic_client = Anthropic()
 elevenlabs_client = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
@@ -45,6 +48,38 @@ def parse_response(raw_text):
     return line, next_speaker
 
 
+def _normalize_name(text):
+    return re.sub(r"[^a-z0-9]", "", text.lower())
+
+
+def resolve_next_speaker(raw_next_speaker, current_speaker, speakers):
+    if not raw_next_speaker:
+        return None
+
+    candidates = [name for name in speakers if name != current_speaker]
+    normalized_raw = _normalize_name(raw_next_speaker)
+    if not normalized_raw:
+        return None
+
+    exact_matches = [name for name in candidates if _normalize_name(name) == normalized_raw]
+    if len(exact_matches) == 1:
+        return exact_matches[0]
+
+    fuzzy_matches = [
+        name for name in candidates
+        if _normalize_name(name) in normalized_raw or normalized_raw in _normalize_name(name)
+    ]
+    if len(fuzzy_matches) == 1:
+        return fuzzy_matches[0]
+
+    return None
+
+
+def _next_in_rotation(current_speaker, speakers):
+    current_index = speakers.index(current_speaker)
+    return speakers[(current_index + 1) % len(speakers)]
+
+
 def generate_turn(speaker, topic, transcript, agents):
     other_speakers = [name for name in agents if name != speaker]
     system_prompt = (
@@ -74,11 +109,13 @@ def generate_turn(speaker, topic, transcript, agents):
         ],
     )
 
-    if response.stop_reason == "max_tokens":
-        return "", None
-
     raw_text = "".join(block.text for block in response.content if block.type == "text")
-    return parse_response(raw_text)
+
+    if response.stop_reason == "max_tokens":
+        return "", None, raw_text
+
+    line, next_speaker = parse_response(raw_text)
+    return line, next_speaker, raw_text
 
 
 def generate_intro(speaker, agents):
@@ -197,24 +234,39 @@ def _run_generation(episode_id: int, topic: str, target_minutes: int, agent_ids:
 
     while elapsed_seconds < target_seconds and attempts < max_attempts:
         attempts += 1
-        line, next_speaker = generate_turn(current_speaker, topic, transcript, agents)
-        next_speaker_valid = next_speaker in agents and next_speaker != current_speaker
+        line, raw_next_speaker, raw_text = generate_turn(current_speaker, topic, transcript, agents)
+        line = line.strip()
 
-        if line.strip() and next_speaker_valid:
-            transcript.append({"speaker": current_speaker, "text": line, "next_speaker": next_speaker})
-            storage.save_turn(episode_id, turn_index, current_speaker, line)
+        if not line:
+            logger.warning(
+                "episode %s turn %s attempt %s: unusable line from %s; raw output: %r",
+                episode_id, turn_index, attempts, current_speaker, raw_text,
+            )
+            current_speaker = _next_in_rotation(current_speaker, speakers)
+            continue
 
-            turn_file = episode_dir / f"turn_{turn_index}.mp3"
-            text_to_speech(line, agents[current_speaker]["voice_id"], str(turn_file))
-            turn_audio_files.append(turn_file)
-            elapsed_seconds += AudioSegment.from_mp3(str(turn_file)).duration_seconds
+        next_speaker = resolve_next_speaker(raw_next_speaker, current_speaker, speakers)
+        if next_speaker is None:
+            next_speaker = _next_in_rotation(current_speaker, speakers)
+            logger.warning(
+                "episode %s turn %s: could not resolve NEXT speaker (raw=%r) after %s; falling back to %s",
+                episode_id, turn_index, raw_next_speaker, current_speaker, next_speaker,
+            )
 
-            turn_index += 1
-            current_speaker = next_speaker
-            storage.update_episode_elapsed(episode_id, elapsed_seconds)
+        transcript.append({"speaker": current_speaker, "text": line, "next_speaker": next_speaker})
+        storage.save_turn(episode_id, turn_index, current_speaker, line)
+        
+        turn_file = episode_dir / f"turn_{turn_index}.mp3"
+        text_to_speech(line, agents[current_speaker]["voice_id"], str(turn_file))
+        turn_audio_files.append(turn_file)
+        elapsed_seconds += AudioSegment.from_mp3(str(turn_file)).duration_seconds
 
-        else:
-            current_speaker = random.choice([name for name in speakers if name != current_speaker])
+        turn_index += 1
+        current_speaker = next_speaker
+        storage.update_episode_elapsed(episode_id, elapsed_seconds)
+
+    #did we stop because attempts ran out, while still short of the goal?
+    attempts_exhausted = attempts >= max_attempts and elapsed_seconds < target_seconds
 
     outro_line = generate_outro(speakers[0], topic, transcript, agents)
     if outro_line.strip():
@@ -236,4 +288,15 @@ def _run_generation(episode_id: int, topic: str, target_minutes: int, agent_ids:
         turn_file.unlink()
 
     relative_audio_path = final_path.relative_to(storage.DATA_DIR)
-    storage.update_episode_status(episode_id, "complete", audio_path=str(relative_audio_path))
+
+    shortfall_message = None
+    if attempts_exhausted:
+        shortfall_message = (
+            f"Reached {elapsed_seconds / 60:.1f} of {target_minutes} target minutes "
+            f"after exhausting {attempts} turn-generation attempts."
+        )
+        logger.warning("episode %s: %s", episode_id, shortfall_message)
+
+    storage.update_episode_status(
+        episode_id, "complete", error_message=shortfall_message, audio_path=str(relative_audio_path)
+    )
