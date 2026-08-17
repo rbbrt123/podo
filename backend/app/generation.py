@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import re
@@ -116,6 +117,96 @@ def generate_turn(speaker, topic, transcript, agents):
 
     line, next_speaker = parse_response(raw_text)
     return line, next_speaker, raw_text
+
+
+def _build_chunk_system_prompt(topic: str, agents: dict) -> str:
+    persona_blocks = "\n\n".join(
+        f"### {name}\n{agent['prompt']}" for name, agent in agents.items()
+    )
+    return(
+        "You are writing a segment of a multi-person podcast conversation. "
+        "There are multiple speakers, each with their own persona, described "
+        "below.\n\n"
+        + persona_blocks
+        + f"\n\nThe topic is: {topic}\n\n"
+        + "This is a real conversation, not a lecture. Vary turn length naturally - "
+        + "sometimes a short reaction ('wait, really?', 'Right, exactly.'), sometimes a "
+        + "longer explanation. It's fine to just react without adding new information. "
+        + "Let speakers genuinely disagree with each other, interrupt, and react to "
+        + "what was just said. Sound like real people, not a scripted panel.\n\n"
+        + "Each speaker can direct their own vocal delivery using ElevenLabs audio tags "
+        + "in square brackets, placed right before the words they affect — e.g. "
+        + "[laughs], [sighs], [curious], [excited], [interrupting]. Use them only where "
+        + "they'd genuinely happen, not on every line."
+    )
+
+
+def _format_transcript_for_chunk(transcript: list[dict]) -> str:
+    if not transcript:
+        return "(the conversation hasn't started yet)"
+    return "\n".join(f"{turn['speaker']}: {turn['text']}" for turn in transcript)
+
+
+def generate_chunk(topic: str, agents: dict, transcript: list[dict], chunk_size: int = 6) -> list[dict]:
+    """Generate the next `chunk_size` turns of dialogue in a single call.
+
+    `agents` is {name: {"prompt": ..., "voice_id": ...}} for every speaker in
+    the episode. `transcript` is the accumulated turns so far, as
+    {"speaker": ..., "text": ...} dicts. Returns the newly generated turns in
+    the same shape.
+    """
+    system_prompt = _build_chunk_system_prompt(topic, agents)
+    conversation_so_far = _format_transcript_for_chunk(transcript)
+
+    speaker_names = list(agents)
+    output_schema = {
+        "type": "object",
+        "properties": {
+            "turns": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "speaker": {"type": "string", "enum": speaker_names},
+                        "text": {"type": "string"},
+                    },
+                    "required": ["speaker", "text"],
+                    "additionalProperties": False,
+                },
+            }
+        },
+        "required": ["turns"],
+        "additionalProperties": False,
+    }
+
+    response = anthropic_client.messages.create(
+        model="claude-sonnet-5",
+        max_tokens=2000,
+        system=[
+            {
+                "type": "text",
+                "text": system_prompt,
+                "cache_control": {"type": "ephemeral"},
+            }
+        ],
+        output_config={"format": {"type": "json_schema", "schema": output_schema}},
+        messages=[
+            {
+                "role": "user",
+                "content": (
+                    f"Conversation so far:\n{conversation_so_far}\n\n"
+                    f"Write the next {chunk_size} turns now."
+                ),
+            }
+        ],
+    )
+
+    if response.stop_reason == "max_tokens":
+        raise ValueError("chunk generation truncated before completing — max_tokens too low for chunk_size")
+
+    raw_text = "".join(block.text for block in response.content if block.type == "text")
+    parsed = json.loads(raw_text)
+    return parsed["turns"]
 
 
 def generate_intro(speaker, agents):
