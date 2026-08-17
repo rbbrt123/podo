@@ -72,3 +72,29 @@ Introduce **Host** as a first-class, per-episode role (see `CONTEXT.md`):
 - Implementation is intentionally blocked on the Phase 2 reliability/speed
   fix landing first (see Context above) — this ADR records the design, not
   a green light to build immediately.
+
+## Addendum (2026-08-17): capped-window mechanism refined during implementation
+
+The Phase 2 reliability/speed work this ADR was gated on turned into its own
+wayfinder planning effort — see [Rearchitect episode generation for speed,
+cost, and host turn-taking (#12)](https://github.com/rbbrt123/podo/issues/12),
+decided on [Decide the core generation architecture
+(#17)](https://github.com/rbbrt123/podo/issues/17). That decision moved turn
+generation from one Anthropic call per turn to one call per *chunk* of
+several turns — which changes how the capped-window rule above is actually
+enforced, though not the role, eligibility flag, or per-episode selection
+design, all of which stand as written.
+
+The original design assumed a live per-turn moment to intervene: the loop
+picks the next speaker turn-by-turn, so forcing control back to the host
+after a cap of guest turns could happen inline, in real time. Chunking
+removes that moment — a chunk arrives as an already-complete script for
+several turns, host included, so there's nothing to intervene on mid-stream.
+Instead: the cap is stated as an instruction in the chunk's prompt, the
+returned chunk is checked against it after the fact
+(`_validate_host_cap()`), and a violating chunk is regenerated in full with
+the specific violation fed back into the retry prompt
+(`generate_validated_chunk()`) — generate-then-validate rather than
+runtime reassignment. Functionally the same guarantee (the host can't be
+absent for more than the cap), enforced at a different point in the
+pipeline because the pipeline's shape changed underneath it.
