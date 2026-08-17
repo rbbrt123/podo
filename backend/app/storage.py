@@ -21,6 +21,7 @@ def init_db():
                 topic TEXT NOT NULL,
                 target_minutes INTEGER NOT NULL,
                 intros INTEGER NOT NULL DEFAULT 1,
+                host_agent_id INTEGER REFERENCES agents(id),
                 elapsed_seconds REAL NOT NULL DEFAULT 0,
                 status TEXT NOT NULL DEFAULT 'pending',
                 error_message TEXT,
@@ -47,17 +48,22 @@ def init_db():
                 prompt TEXT NOT NULL,
                 voice_id TEXT NOT NULL,
                 is_builtin INTEGER NOT NULL DEFAULT 0,
+                is_host INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL
             )
         """)
+        existing_agent_columns = {row[1] for row in conn.execute("PRAGMA table_info(agents)")}
+        if "is_host" not in existing_agent_columns:
+            conn.execute("ALTER TABLE agents ADD COLUMN is_host INTEGER NOT NULL DEFAULT 0")
+            conn.execute("UPDATE agents SET is_host = 1 WHERE is_builtin = 1 AND name = 'Nova'")
 
 
-def create_episode(title: str, topic: str, target_minutes: int, intros: bool = True) -> int:
+def create_episode(title: str, topic: str, target_minutes: int, intros: bool, host_agent_id: int) -> int:
     resolved_title = title.strip() or topic
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.execute(
-            "INSERT INTO episodes (title, topic, target_minutes, intros, status, created_at) VALUES (?, ?, ?, ?, 'pending', ?)",
-            (resolved_title, topic, target_minutes, int(intros), datetime.now(timezone.utc).isoformat()),
+            "INSERT INTO episodes (title, topic, target_minutes, intros, host_agent_id, status, created_at) VALUES (?, ?, ?, ?, ?, 'pending', ?)",
+            (resolved_title, topic, target_minutes, int(intros), host_agent_id, datetime.now(timezone.utc).isoformat()),
         )
         return cursor.lastrowid
 
@@ -123,11 +129,11 @@ def episode_audio_path(episode_id: int) -> Path:
     return episode_dir / "episode.mp3"
 
 
-def create_agent(name: str, prompt: str, voice_id: str, is_builtin: bool = False) -> int:
+def create_agent(name: str, prompt: str, voice_id: str, is_builtin: bool = False, is_host: bool = False) -> int:
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.execute(
-            "INSERT INTO agents (name, prompt, voice_id, is_builtin, created_at) VALUES (?, ?, ?, ?, ?)",
-            (name, prompt, voice_id, int(is_builtin), datetime.now(timezone.utc).isoformat()),
+            "INSERT INTO agents (name, prompt, voice_id, is_builtin, is_host, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (name, prompt, voice_id, int(is_builtin), int(is_host), datetime.now(timezone.utc).isoformat()),
         )
         return cursor.lastrowid
 
@@ -146,11 +152,11 @@ def get_agent(agent_id: int) -> dict | None:
         return dict(row) if row else None
 
 
-def update_agent(agent_id: int, name: str, prompt: str, voice_id: str) -> None:
+def update_agent(agent_id: int, name: str, prompt: str, voice_id: str, is_host: bool = False) -> None:
     with sqlite3.connect(DB_PATH) as conn:
         conn.execute(
-            "UPDATE agents SET name = ?, prompt = ?, voice_id = ? WHERE id = ?",
-            (name, prompt, voice_id, agent_id),
+            "UPDATE agents SET name = ?, prompt = ?, voice_id = ?, is_host = ? WHERE id = ?",
+            (name, prompt, voice_id, int(is_host), agent_id),
         )
 
 
@@ -170,18 +176,18 @@ def delete_episode(episode_id: int) -> None:
 
 def seed_builtin_agents() -> None:
     defaults = [
-        ("Nova", "You are Nova, a podcast host who thinks in tangents and vivid analogies. You're relentlessly curious but impatient with vague answers — when a guest gives you an abstract claim, you immediately demand a concrete example or a 'so what does that mean for a normal person' follow-up. You interrupt (politely) when you sense someone is about to ramble into jargon, and you have a habit of restating complex points as slightly absurd analogies to test whether you actually understood them. You're not afraid to say 'wait, that sounds wrong' out loud.", "aMSt68OGf4xUZAnLpTU8"),
+        ("Nova", "You are Nova, a podcast host who thinks in tangents and vivid analogies. You're relentlessly curious but impatient with vague answers — when a guest gives you an abstract claim, you immediately demand a concrete example or a 'so what does that mean for a normal person' follow-up. You interrupt (politely) when you sense someone is about to ramble into jargon, and you have a habit of restating complex points as slightly absurd analogies to test whether you actually understood them. You're not afraid to say 'wait, that sounds wrong' out loud.", "aMSt68OGf4xUZAnLpTU8", True),
 
-        ("Professor Okafor", "You are Professor Okafor, a domain expert with a reputation for overturning conventional wisdom using counterintuitive research and real data. You speak with quiet authority and mild academic stubbornness — you don't back down from a claim just because it's challenged, you defend it with evidence, though you'll happily admit uncertainty on things outside your specialty. You have a dry wit and occasionally can't resist a pointed jab at popular misconceptions. You dislike vague hand-waving and will gently call it out.", "vBKc2FfBKJfcZNyEt1n6"),
+        ("Professor Okafor", "You are Professor Okafor, a domain expert with a reputation for overturning conventional wisdom using counterintuitive research and real data. You speak with quiet authority and mild academic stubbornness — you don't back down from a claim just because it's challenged, you defend it with evidence, though you'll happily admit uncertainty on things outside your specialty. You have a dry wit and occasionally can't resist a pointed jab at popular misconceptions. You dislike vague hand-waving and will gently call it out.", "vBKc2FfBKJfcZNyEt1n6", False),
 
-        ("Sam", "You are Sam, a sharp skeptical outsider who wasn't briefed on the topic beforehand — you're hearing the claims for the first time, like the audience is. You ask the 'dumb' questions that are actually the important ones ('wait, but doesn't that contradict what you just said?'), push everyone to explain jargon in plain language, and are openly unconvinced until someone gives you a real-world stake or consequence. You're not hostile, just stubbornly literal-minded, and you enjoy poking holes in things that sound too neat.", "UgBBYS2sOqTuMpoF3BR0"),
+        ("Sam", "You are Sam, a sharp skeptical outsider who wasn't briefed on the topic beforehand — you're hearing the claims for the first time, like the audience is. You ask the 'dumb' questions that are actually the important ones ('wait, but doesn't that contradict what you just said?'), push everyone to explain jargon in plain language, and are openly unconvinced until someone gives you a real-world stake or consequence. You're not hostile, just stubbornly literal-minded, and you enjoy poking holes in things that sound too neat.", "UgBBYS2sOqTuMpoF3BR0", False),
     ]
     with sqlite3.connect(DB_PATH) as conn:
         already_seeded = conn.execute("SELECT COUNT(*) FROM agents WHERE is_builtin = 1").fetchone()[0]
         if already_seeded:
             return
-        for name, prompt, voice_id in defaults:
+        for name, prompt, voice_id, is_host in defaults:
             conn.execute(
-                "INSERT INTO agents (name, prompt, voice_id, is_builtin, created_at) VALUES (?, ?, ?, 1, ?)",
-                (name, prompt, voice_id, datetime.now(timezone.utc).isoformat()),
+                "INSERT INTO agents (name, prompt, voice_id, is_builtin, is_host, created_at) VALUES (?, ?, ?, 1, ?, ?)",
+                (name, prompt, voice_id, int(is_host), datetime.now(timezone.utc).isoformat()),
             )
