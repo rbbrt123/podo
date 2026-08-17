@@ -32,6 +32,8 @@ def init_db():
         existing_columns = {row[1] for row in conn.execute("PRAGMA table_info(episodes)")}
         if "intros" not in existing_columns:
             conn.execute("ALTER TABLE episodes ADD COLUMN intros INTEGER NOT NULL DEFAULT 1")
+        if "host_agent_id" not in existing_columns:
+            conn.execute("ALTER TABLE episodes ADD COLUMN host_agent_id INTEGER REFERENCES agents(id)")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS turns (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
