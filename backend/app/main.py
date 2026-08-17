@@ -22,12 +22,14 @@ class CreateEpisodeRequest(BaseModel):
     target_minutes: int = Field(default=5, ge=2, le=30)
     agent_ids: list[int] = Field(min_length=2)
     intros: bool = True
+    host_agent_id: int
 
 
 class AgentRequest(BaseModel):
     name: str
     prompt: str
     voice_id: str
+    is_host: bool = False
 
 
 @app.post("/episodes")
@@ -38,9 +40,18 @@ def create_episode(request: CreateEpisodeRequest, background_tasks: BackgroundTa
     if len({agent["name"] for agent in agents}) != len(agents):
         raise HTTPException(status_code=400, detail="Selected agents must have distinct names")
 
-    episode_id = storage.create_episode(request.title, request.topic, request.target_minutes, request.intros)
+    if request.host_agent_id not in request.agent_ids:
+        raise HTTPException(status_code=400, detail="Host must be one of the selected agents")
+    host_agent = next(agent for agent in agents if agent["id"] == request.host_agent_id)
+    if not host_agent["is_host"]:
+        raise HTTPException(status_code=400, detail=f"{host_agent['name']} is not eligible to host")
+
+    episode_id = storage.create_episode(
+        request.title, request.topic, request.target_minutes, request.intros, request.host_agent_id
+    )
     background_tasks.add_task(
-        generation.generate_episode, episode_id, request.topic, request.target_minutes, request.agent_ids, request.intros
+        generation.generate_episode,
+        episode_id, request.topic, request.target_minutes, request.agent_ids, request.intros, request.host_agent_id,
         )
     return {"id": episode_id, "status": "pending"}
 
@@ -79,7 +90,7 @@ def delete_episode(episode_id: int):
 
 @app.post("/agents")
 def create_agent(request: AgentRequest):
-    agent_id = storage.create_agent(request.name, request.prompt, request.voice_id)
+    agent_id = storage.create_agent(request.name, request.prompt, request.voice_id, is_host=request.is_host)
     return {"id": agent_id}
 
 
@@ -103,7 +114,7 @@ def update_agent(agent_id: int, request: AgentRequest):
         raise HTTPException(status_code=404, detail="Agent not found")
     if agent["is_builtin"]:
         raise HTTPException(status_code=400, detail="Built-in agents can't be edited directly — duplicate it into a new agent instead")
-    storage.update_agent(agent_id, request.name, request.prompt, request.voice_id)
+    storage.update_agent(agent_id, request.name, request.prompt, request.voice_id, is_host=request.is_host)
     return {"status": "updated"}
 
 
