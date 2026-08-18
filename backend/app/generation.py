@@ -1,13 +1,13 @@
+import io
 import json
 import logging
 import os
 import re
-import io
+from concurrent.futures import ThreadPoolExecutor
 
 from anthropic import Anthropic
 from elevenlabs import DialogueInput
 from elevenlabs.client import ElevenLabs
-from elevenlabs.types import VoiceSettings
 from pydub import AudioSegment
 from dotenv import load_dotenv
 
@@ -21,6 +21,8 @@ anthropic_client = Anthropic()
 elevenlabs_client = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
 
 HOST_GUEST_CAP  = 2  # ADR-0001: host must reclaim control within this many consecutive guest turns
+DEFAULT_CHUNK_SIZE = 6
+MIN_FINAL_CHUNK_SIZE = 2
 
 
 def list_voices():
@@ -29,98 +31,6 @@ def list_voices():
         {"voice_id": voice.voice_id, "name": voice.name, "preview_url": voice.preview_url} 
         for voice in response.voices
         ]
-
-
-def format_transcript(transcript):
-    if not transcript:
-        return "(the conversation hasn't started yet)"
-    blocks = [
-        f"{turn['speaker']}\nLINE: {turn['text']}\nNEXT: {turn['next_speaker']}"
-        for turn in transcript
-    ]
-    return "\n\n".join(blocks)
-
-
-def parse_response(raw_text):
-    line = ""
-    next_speaker = None
-    for text_line in raw_text.split("\n"):
-        text_line = text_line.strip()
-        if text_line.startswith("LINE:"):
-            line = text_line[len("LINE:"):].strip()
-        elif text_line.startswith("NEXT:"):
-            next_speaker = text_line[len("NEXT:"):].strip()
-    return line, next_speaker
-
-
-def _normalize_name(text):
-    return re.sub(r"[^a-z0-9]", "", text.lower())
-
-
-def resolve_next_speaker(raw_next_speaker, current_speaker, speakers):
-    if not raw_next_speaker:
-        return None
-
-    candidates = [name for name in speakers if name != current_speaker]
-    normalized_raw = _normalize_name(raw_next_speaker)
-    if not normalized_raw:
-        return None
-
-    exact_matches = [name for name in candidates if _normalize_name(name) == normalized_raw]
-    if len(exact_matches) == 1:
-        return exact_matches[0]
-
-    fuzzy_matches = [
-        name for name in candidates
-        if _normalize_name(name) in normalized_raw or normalized_raw in _normalize_name(name)
-    ]
-    if len(fuzzy_matches) == 1:
-        return fuzzy_matches[0]
-
-    return None
-
-
-def _next_in_rotation(current_speaker, speakers):
-    current_index = speakers.index(current_speaker)
-    return speakers[(current_index + 1) % len(speakers)]
-
-
-def generate_turn(speaker, topic, transcript, agents):
-    other_speakers = [name for name in agents if name != speaker]
-    system_prompt = (
-        agents[speaker]["prompt"]
-        + f"\n\nYou are having a real, casual spoken conversation about: {topic}\n"
-        + f"The other speaker(s) is/(are): {', '.join(other_speakers)}\n"
-        + "This is a real conversation, not a lecture. Vary your turn length naturally — "
-        + "sometimes a short reaction ('Wait, really?', 'Right, exactly.'), sometimes a longer "
-        + "explanation. It's fine to just react without adding new information. Disagree when "
-        + "you'd genuinely disagree. Sound like a person, not a textbook.\n\n"
-        + "You can direct your own vocal delivery using ElevenLabs audio tags in square brackets, "
-        + "placed right before the words they affect — e.g. [laughs], [sighs], [curious], "
-        + "[excited], [interrupting]. Use them only where they'd genuinely happen, not on every line.\n\n"
-        + "Respond in EXACTLY this format, and nothing else:\n"
-        + "LINE: <your conversational turn, audio tags inline where relevant, no name label>\n"
-        + f"NEXT: <who should speak next — one of: {', '.join(other_speakers)}>"
-    )
-
-    conversation_so_far = format_transcript(transcript)
-
-    response = anthropic_client.messages.create(
-        model="claude-sonnet-5",
-        max_tokens=500,
-        system=system_prompt,
-        messages=[
-            {"role": "user", "content": f"Conversation so far:\n{conversation_so_far}\n\nGive your next line."}
-        ],
-    )
-
-    raw_text = "".join(block.text for block in response.content if block.type == "text")
-
-    if response.stop_reason == "max_tokens":
-        return "", None, raw_text
-
-    line, next_speaker = parse_response(raw_text)
-    return line, next_speaker, raw_text
 
 
 def _build_chunk_system_prompt(
@@ -323,77 +233,6 @@ def generate_validated_chunk(
         f"episode {episode_id}: exhausted {max_attempts} attempts generating a valid chunk "
         f"(last failure: {failure_reason})"
     )
-
-
-def generate_intro(speaker, agents):
-    system_prompt = (
-        agents[speaker]["prompt"]
-        + "\n\nYou are about to co-host a podcast episode with other speakers. Before the real "
-        + "discussion starts, give a short, one-sentence self-introduction — just your name and a "
-        + "brief sense of your role or angle. Don't mention the episode's topic yet, and don't ask "
-        + "a question — the real discussion starts right after everyone has introduced themselves.\n\n"
-        + "Respond with EXACTLY one sentence, and nothing else — no labels, no extra commentary."
-    )
-
-    response = anthropic_client.messages.create(
-        model="claude-sonnet-5",
-        max_tokens=100,
-        system=system_prompt,
-        messages=[{"role": "user", "content": "Give your one-sentence self-introduction."}],
-    )
-    return "".join(block.text for block in response.content if block.type == "text").strip()
-
-
-def generate_outro(speaker, topic, transcript, agents):
-    participant_names = ", ".join(agents)
-    system_prompt = (
-        agents[speaker]["prompt"]
-        + f"\n\nYou are having a real, casual spoken conversation about: {topic}\n"
-        + "The conversation is about to end, and as the host, it's on you to close the show. "
-        + "This is the FINAL line of the episode. Note that time is running out, wrap up the "
-        + f"discussion naturally, and sign off — briefly reference what you talked about, and "
-        + f"thank your co-host(s) by name ({participant_names}). Don't ask a new question, "
-        + "don't open a new thread.\n\n"
-        + "You can direct your own vocal delivery using ElevenLabs audio tags in square brackets, "
-        + "placed right before the words they affect — e.g. [laughs], [sighs], [warmly]. Use "
-        + "them only where they'd genuinely happen.\n\n"
-        + "Respond in EXACTLY this format, and nothing else:\n"
-        + "LINE: <your closing line, audio tags inline where relevant, no name label>"
-    )
-
-    conversation_so_far = format_transcript(transcript)
-
-    response = anthropic_client.messages.create(
-        model="claude-sonnet-5",
-        max_tokens=500,
-        system=system_prompt,
-        messages=[
-            {"role": "user", "content": f"Conversation so far:\n{conversation_so_far}\n\nGive your closing line."}
-        ],
-    )
-
-    if response.stop_reason == "max_tokens":
-        return ""
-
-    raw_text = "".join(block.text for block in response.content if block.type == "text")
-    for text_line in raw_text.split("\n"):
-        text_line = text_line.strip()
-        if text_line.startswith("LINE:"):
-            return text_line[len("LINE:"):].strip()
-    return ""
-
-
-def text_to_speech(text, voice_id, filename):
-    audio_chunks = elevenlabs_client.text_to_speech.convert(
-        text=text,
-        voice_id=voice_id,
-        model_id="eleven_v3",
-        output_format="mp3_44100_128",
-        voice_settings=VoiceSettings(stability=0.3, similarity_boost=0.75),
-    )
-    with open(filename, "wb") as f:
-        for chunk in audio_chunks:
-            f.write(chunk)
 
 
 def _split_turns_into_batches(turns: list[dict], max_chars: int = 2000) -> list[list[dict]]:
