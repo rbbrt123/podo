@@ -2,8 +2,10 @@ import json
 import logging
 import os
 import re
+import io
 
 from anthropic import Anthropic
+from elevenlabs import DialogueInput
 from elevenlabs.client import ElevenLabs
 from elevenlabs.types import VoiceSettings
 from pydub import AudioSegment
@@ -392,6 +394,50 @@ def text_to_speech(text, voice_id, filename):
     with open(filename, "wb") as f:
         for chunk in audio_chunks:
             f.write(chunk)
+
+
+def _split_turns_into_batches(turns: list[dict], max_chars: int = 2000) -> list[list[dict]]:
+    """Groups turns into batches that each fit ElevenLabs' Text to Dialogue
+    per-request character budget (~2000 chars combined across all turns).
+    Splitting is a rare fallback -- most chunks fit in a single batch."""
+    batches = []
+    current_batch = []
+    current_chars = 0
+    for turn in turns:
+        turn_chars = len(turn["text"])
+        if current_batch and current_chars + turn_chars > max_chars:
+            batches.append(current_batch)
+            current_batch = []
+            current_chars = 0
+        current_batch.append(turn)
+        current_chars += turn_chars
+    if current_batch:
+        batches.append(current_batch)
+    return batches
+
+
+def synthesize_chunk(turns: list[dict], agents: dict, filename: str) -> None:
+    """Synthesizes a whole chunk's turns into one combined audio file via
+    ElevenLabs' Text to Dialogue endpoint -- one call per chunk (or, rarely,
+    per sub-batch if the chunk exceeds the endpoint's character budget)
+    instead of one call per line."""
+    batches = _split_turns_into_batches(turns)
+
+    combined_audio = AudioSegment.empty()
+    for batch in batches:
+        dialogue_inputs = [
+            DialogueInput(text=turn["text"], voice_id=agents[turn["speaker"]]["voice_id"])
+            for turn in batch
+        ]
+        audio_chunks = elevenlabs_client.text_to_dialogue.convert(
+            inputs=dialogue_inputs,
+            model_id="eleven_v3",
+            output_format="mp3_44100_128",
+        )
+        batch_bytes = b"".join(audio_chunks)
+        combined_audio += AudioSegment.from_mp3(io.BytesIO(batch_bytes))
+
+    combined_audio.export(filename, format="mp3") 
 
 
 def generate_episode(episode_id: int, topic: str, target_minutes: int, agent_ids: list[int], intros: bool, host_agent_id: int) -> None:
