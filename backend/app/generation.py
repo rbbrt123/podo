@@ -282,9 +282,20 @@ def synthesize_chunk(turns: list[dict], agents: dict, filename: str) -> None:
     combined_audio.export(filename, format="mp3") 
 
 
-def _plan_next_chunk(elapsed_seconds: float, target_seconds: float, turns_so_far: int) -> tuple[int, bool]:
+def _plan_next_chunk(
+        elapsed_seconds: float,
+        target_seconds: float,
+        turns_so_far: int,
+        in_flight_turns: int = 0,
+) -> tuple[int, bool]:
     """Decides how many turns to request next and whether this should be the
     final chunk, based on actual pacing observed so far in this episode.
+
+    `in_flight_turns` lets a chunk whose audio is still synthesizing (its
+    real duration isn't known yet) count toward the pacing estimate anyway,
+    projected using the average pace observed so far -- needed once
+    generation and synthesis run concurrently and chunk N+1 has to be
+    planned before chunk N's audio duration is known.
 
     Returns (chunk_size, is_final_chunk).
     """
@@ -293,7 +304,8 @@ def _plan_next_chunk(elapsed_seconds: float, target_seconds: float, turns_so_far
     else:
         avg_seconds_per_turn = elapsed_seconds / turns_so_far
 
-    remaining_seconds = target_seconds - elapsed_seconds
+    projected_elapsed = elapsed_seconds + avg_seconds_per_turn * in_flight_turns
+    remaining_seconds = target_seconds - projected_elapsed
     turns_remaining_estimate = remaining_seconds / avg_seconds_per_turn
 
     if turns_remaining_estimate <= DEFAULT_CHUNK_SIZE:
@@ -331,32 +343,52 @@ def _run_generation(episode_id: int, topic: str, target_minutes: int, agent_ids:
     elapsed_seconds = 0.0
     max_chunks = math.ceil(target_seconds / (MIN_PLAUSIBLE_SECONDS_PER_TURN * MIN_FINAL_CHUNK_SIZE))
 
-    while elapsed_seconds < target_seconds and chunk_index < max_chunks:
-        chunk_size, is_final_chunk = _plan_next_chunk(elapsed_seconds, target_seconds, len(transcript))
+    chunk_size, is_final_chunk = _plan_next_chunk(elapsed_seconds, target_seconds, len(transcript))
+    turns = generate_validated_chunk(
+        episode_id, topic, agents, transcript, host_name,
+        chunk_size=chunk_size,
+        include_intros=intros,
+        is_final_chunk=is_final_chunk,
+    )
 
-        turns = generate_validated_chunk(
-            episode_id, topic, agents, transcript, host_name,
-            chunk_size=chunk_size,
-            include_intros=(intros and chunk_index == 0),
-            is_final_chunk=is_final_chunk,
-        )
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        while True:
+            chunk_file = episode_dir / f"chunk_{chunk_index}.mp3"
+            synth_future = executor.submit(synthesize_chunk, turns, agents, str(chunk_file))
 
-        chunk_file = episode_dir / f"chunk_{chunk_index}.mp3"
-        synthesize_chunk(turns, agents, str(chunk_file))
-        chunk_duration = AudioSegment.from_mp3(str(chunk_file)).duration_seconds
+            # While this chunk's audio synthesizes in the background, generate
+            # the *next* chunk's text on the main thread -- it only needs the
+            # transcript so far, not this chunk's finished audio, so the two
+            # calls don't actually depend on each other.
+            will_continue = not is_final_chunk and chunk_index + 1 < max_chunks
+            if will_continue:
+                next_chunk_size, next_is_final = _plan_next_chunk(
+                    elapsed_seconds, target_seconds, len(transcript), in_flight_turns=len(turns)
+                )
+                next_turns = generate_validated_chunk(
+                    episode_id, topic, agents, transcript + turns, host_name,
+                    chunk_size=next_chunk_size,
+                    include_intros=False,
+                    is_final_chunk=next_is_final,
+                )
+            synth_future.result()
+            chunk_duration = AudioSegment.from_mp3(str(chunk_file)).duration_seconds
 
-        for turn in turns:
-            storage.save_turn(episode_id, turn_index, turn["speaker"], turn["text"])
-            transcript.append(turn)
-            turn_index += 1
+            for turn in turns:
+                storage.save_turn(episode_id, turn_index, turn["speaker"], turn["text"])
+                transcript.append(turn)
+                turn_index += 1
 
-        chunk_audio_files.append(chunk_file)
-        elapsed_seconds += chunk_duration
-        storage.update_episode_elapsed(episode_id, elapsed_seconds)
-        chunk_index += 1
+            chunk_audio_files.append(chunk_file)
+            elapsed_seconds += chunk_duration
+            storage.update_episode_elapsed(episode_id, elapsed_seconds)
+            chunk_index += 1
 
-        if is_final_chunk:
-            break
+            if not will_continue:
+                break
+
+            turns = next_turns
+            is_final_chunk = next_is_final
 
     # did we stop because the chunk budget ran out, while still short of the goal?
     chunks_exhausted = chunk_index >= max_chunks and elapsed_seconds < target_seconds
