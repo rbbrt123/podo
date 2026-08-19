@@ -184,6 +184,24 @@ def _validate_host_cap(turns: list[dict], host_name: str, guest_cap: int) -> str
     return None
 
 
+def _validate_chunk_content(turns: list[dict], host_name: str, is_final_chunk: bool) -> str | None:
+    """Returns a description of the violation if the chunk contains an
+    obviously broken placeholder turn, or if the final chunk doesn't end on
+    the host's sign-off, or None if valid."""
+    for turn in turns:
+        if turn["text"].strip().lower() == "placeholder":
+            return (
+                f"a turn from {turn['speaker']} contained the literal text "
+                "\"placeholder\" instead of real dialogue."
+            )
+    if is_final_chunk and turns and turns[-1]["speaker"] != host_name:
+        return (
+            f"this is the final chunk but the last turn was from {turns[-1]['speaker']}, "
+            f"not {host_name} -- the host must deliver the sign-off as the very last turn."
+        )
+    return None
+
+
 def generate_validated_chunk(
     episode_id: int,
     topic: str,
@@ -228,6 +246,12 @@ def generate_validated_chunk(
         if violation:
             failure_reason = violation
             logger.warning("episode %s chunk attempt %s rejected: %s", episode_id, attempt, violation)
+            continue
+
+        content_violation = _validate_chunk_content(turns, host_name, is_final_chunk)
+        if content_violation:
+            failure_reason = content_violation
+            logger.warning("episode %s chunk attempt %s rejected: %s", episode_id, attempt, content_violation)
             continue
 
         return turns
