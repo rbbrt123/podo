@@ -66,7 +66,7 @@ Worth recording so this choice doesn't look like an accident:
 | 1 | [Delete episodes](#1-delete-episodes) | Small | Awaiting merge |
 | 2 | [Optional self-introductions toggle](#2-optional-self-introductions-toggle) | Small | Not started |
 | 3 | [Duration-based length](#3-duration-based-length) | Small–Medium | Not started |
-| 4 | [Generation reliability](#4-generation-reliability) | Medium–Large | Not started |
+| 4 | [Generation reliability](#4-generation-reliability) | Medium–Large | In progress |
 | 5 | [Deploying podo](#5-deploying-podo) | Small–Medium (scope assumed — see notes) | Not started |
 | 6 | [Document-grounded episodes](#6-document-grounded-episodes) | Medium–Large | Not started |
 | 7 | [AI-assisted prompt generation](#7-ai-assisted-prompt-generation) | Medium | Not started |
@@ -140,6 +140,38 @@ bigger items are planned.
 - **Effort:** Medium–Large (folds in the former "Faster generation"
   item and a host/moderator turn-taking redesign — see *Why here*)
 - **Depends on:** —
+- **Status (2026-08-17):** The reliability-fix sub-scope shipped in
+  [PR #11](https://github.com/rbbrt123/podo/pull/11) — the hypothesis
+  below is confirmed and fixed, not just diagnosed. The remaining
+  scope (speed + the host/moderator build) was planned and decided as
+  its own wayfinder effort rather than continuing here freeform — see
+  [Rearchitect episode generation for speed, cost, and host
+  turn-taking (#12)](https://github.com/rbbrt123/podo/issues/12), with
+  the chosen architecture spec'd on [Decide the core generation
+  architecture (#17)](https://github.com/rbbrt123/podo/issues/17).
+  That decision **supersedes** the *What it involves* plan sketched
+  below (which was written before the wayfinder session) — treat this
+  entry's original text as historical context for why the work exists,
+  not the current plan.
+
+  Implementation is underway on integration branch
+  `feature/chunked-generation` (branched from `main`, will merge back
+  once proven working end-to-end — nothing here has touched `main`
+  yet), via a sequence of sub-branches:
+  - [x] `feature/chunked-turn-generation` — merged. Batched multi-turn
+    dialogue generation (`generate_chunk()`), structured JSON output,
+    prompt caching.
+  - [x] `feature/host-enforcement` — merged. `is_host` /
+    `host_agent_id` schema, episode-creation validation, the
+    generate-validate-regenerate repair loop (`generate_validated_chunk()`),
+    host picker in the Gradio UI.
+  - [ ] `feature/chunked-tts` — in progress. ElevenLabs Text to
+    Dialogue synthesis per chunk.
+  - [ ] `feature/chunk-duration-control` — not started. Wires the
+    chunk generation, TTS, and host-validation pieces into
+    `_run_generation()`, replacing the old per-turn loop — the point
+    where the app's actual behavior changes for the first time. Gated
+    on a full real-episode smoke test before merging into `main`.
 - **Why here:** Real-world testing surfaced two correctness bugs, not
   just a speed problem: turns are sometimes skipped entirely, and an
   agent's line in the transcript sometimes doesn't match what's
@@ -178,7 +210,7 @@ bigger items are planned.
   after a small cap of consecutive guest turns) and host-owned
   intro/outro. Still gated on the reliability + speed work below
   landing first.
-- **Hypothesis (root cause) — diagnosed, not yet fixed:**
+- **Hypothesis (root cause) — diagnosed and fixed (see Status above):**
   `_run_generation()` accepts a turn only if the line is non-empty
   *and* `next_speaker` is an exact, case-sensitive match against an
   agent's display name (`next_speaker in agents and next_speaker !=
@@ -212,10 +244,9 @@ bigger items are planned.
     the literal expected name (trailing punctuation, an honorific,
     slightly different casing) is treated identically to a genuinely
     broken response, discarding an otherwise perfectly good line.
-  - Not yet confirmed against real generation logs — the first item
-    under *What it involves* is meant to verify this before designing
-    a fix.
-- **What it involves:** Log rejected attempts (raw model output + why
+  - Confirmed against real rejection logs once the logging landed in
+    PR #11 — this was the actual root cause.
+- **What it involves (superseded — see Status above):** Log rejected attempts (raw model output + why
   each was rejected) to confirm the hypothesis above; stop discarding
   a good line just because `next_speaker` parsing missed — validate
   and repair the two independently instead of failing the whole turn;
