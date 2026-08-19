@@ -1,6 +1,7 @@
 import io
 import json
 import logging
+import math
 import os
 import re
 from concurrent.futures import ThreadPoolExecutor
@@ -23,6 +24,8 @@ elevenlabs_client = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
 HOST_GUEST_CAP  = 2  # ADR-0001: host must reclaim control within this many consecutive guest turns
 DEFAULT_CHUNK_SIZE = 6
 MIN_FINAL_CHUNK_SIZE = 2
+DEFAULT_SECONDS_PER_TURN_ESTIMATE = 12.0  # rough guess before we have any real data for this episode
+MIN_PLAUSIBLE_SECONDS_PER_TURN = 2.0      # backstop only: guards against a runaway loop if a chunk's audio comes back implausibly short
 
 
 def list_voices():
@@ -279,6 +282,27 @@ def synthesize_chunk(turns: list[dict], agents: dict, filename: str) -> None:
     combined_audio.export(filename, format="mp3") 
 
 
+def _plan_next_chunk(elapsed_seconds: float, target_seconds: float, turns_so_far: int) -> tuple[int, bool]:
+    """Decides how many turns to request next and whether this should be the
+    final chunk, based on actual pacing observed so far in this episode.
+
+    Returns (chunk_size, is_final_chunk).
+    """
+    if turns_so_far == 0:
+        avg_seconds_per_turn = DEFAULT_SECONDS_PER_TURN_ESTIMATE
+    else:
+        avg_seconds_per_turn = elapsed_seconds / turns_so_far
+
+    remaining_seconds = target_seconds - elapsed_seconds
+    turns_remaining_estimate = remaining_seconds / avg_seconds_per_turn
+
+    if turns_remaining_estimate <= DEFAULT_CHUNK_SIZE:
+        chunk_size = max(MIN_FINAL_CHUNK_SIZE, round(turns_remaining_estimate))
+        return chunk_size, True
+
+    return DEFAULT_CHUNK_SIZE, False
+
+
 def generate_episode(episode_id: int, topic: str, target_minutes: int, agent_ids: list[int], intros: bool, host_agent_id: int) -> None:
     storage.update_episode_status(episode_id, "generating")
     try:
@@ -288,106 +312,77 @@ def generate_episode(episode_id: int, topic: str, target_minutes: int, agent_ids
 
 
 def _run_generation(episode_id: int, topic: str, target_minutes: int, agent_ids: list[int], intros: bool, host_agent_id: int) -> None:
-    # host_agent_id is accepted here so the API is host-aware end-to-end, but
-    # this loop still runs the pre-chunking generate_turn() pipeline
-    # unchanged. Wired into generate_validated_chunk() once this loop itself
-    # is replaced (feature/chunk-duration-control).
     agents = {}
     for agent_id in agent_ids:
         agent = storage.get_agent(agent_id)
         if agent is not None:
             agents[agent["name"]] = agent
+    host_name = next(name for name, agent in agents.items() if agent["id"] == host_agent_id)
 
     final_path = storage.episode_audio_path(episode_id)
     episode_dir = final_path.parent
 
     transcript = []
-    turn_audio_files = []
-    speakers = list(agents)
-    current_speaker = speakers[0]
-
+    chunk_audio_files = []
     turn_index = 0
-
-    if intros:
-        for i, speaker in enumerate(speakers):
-            next_intro_speaker = speakers[i + 1] if i + 1 < len(speakers) else speakers[0]
-            line = generate_intro(speaker, agents)
-
-            transcript.append({"speaker": speaker, "text": line, "next_speaker": next_intro_speaker})
-            storage.save_turn(episode_id, turn_index, speaker, line)
-
-            turn_file = episode_dir / f"turn_{turn_index}.mp3"
-            text_to_speech(line, agents[speaker]["voice_id"], str(turn_file))
-            turn_audio_files.append(turn_file)
-            turn_index += 1
+    chunk_index = 0
 
     target_seconds = target_minutes * 60
     elapsed_seconds = 0.0
-    attempts = 0
-    max_attempts = (target_seconds // 3) * 3
+    max_chunks = math.ceil(target_seconds / (MIN_PLAUSIBLE_SECONDS_PER_TURN * MIN_FINAL_CHUNK_SIZE))
 
-    while elapsed_seconds < target_seconds and attempts < max_attempts:
-        attempts += 1
-        line, raw_next_speaker, raw_text = generate_turn(current_speaker, topic, transcript, agents)
-        line = line.strip()
+    while elapsed_seconds < target_seconds and chunk_index < max_chunks:
+        chunk_size, is_final_chunk = _plan_next_chunk(elapsed_seconds, target_seconds, len(transcript))
 
-        if not line:
-            logger.warning(
-                "episode %s turn %s attempt %s: unusable line from %s; raw output: %r",
-                episode_id, turn_index, attempts, current_speaker, raw_text,
-            )
-            current_speaker = _next_in_rotation(current_speaker, speakers)
-            continue
+        turns = generate_validated_chunk(
+            episode_id, topic, agents, transcript, host_name,
+            chunk_size=chunk_size,
+            include_intros=(intros and chunk_index == 0),
+            is_final_chunk=is_final_chunk,
+        )
 
-        next_speaker = resolve_next_speaker(raw_next_speaker, current_speaker, speakers)
-        if next_speaker is None:
-            next_speaker = _next_in_rotation(current_speaker, speakers)
-            logger.warning(
-                "episode %s turn %s: could not resolve NEXT speaker (raw=%r) after %s; falling back to %s",
-                episode_id, turn_index, raw_next_speaker, current_speaker, next_speaker,
-            )
+        chunk_file = episode_dir / f"chunk_{chunk_index}.mp3"
+        synthesize_chunk(turns, agents, str(chunk_file))
+        chunk_duration = AudioSegment.from_mp3(str(chunk_file)).duration_seconds
 
-        transcript.append({"speaker": current_speaker, "text": line, "next_speaker": next_speaker})
-        storage.save_turn(episode_id, turn_index, current_speaker, line)
-        
-        turn_file = episode_dir / f"turn_{turn_index}.mp3"
-        text_to_speech(line, agents[current_speaker]["voice_id"], str(turn_file))
-        turn_audio_files.append(turn_file)
-        elapsed_seconds += AudioSegment.from_mp3(str(turn_file)).duration_seconds
+        for turn in turns:
+            storage.save_turn(episode_id, turn_index, turn["speaker"], turn["text"])
+            transcript.append(turn)
+            turn_index += 1
 
-        turn_index += 1
-        current_speaker = next_speaker
+        chunk_audio_files.append(chunk_file)
+        elapsed_seconds += chunk_duration
         storage.update_episode_elapsed(episode_id, elapsed_seconds)
+        chunk_index += 1
 
-    #did we stop because attempts ran out, while still short of the goal?
-    attempts_exhausted = attempts >= max_attempts and elapsed_seconds < target_seconds
+        if is_final_chunk:
+            break
 
-    outro_line = generate_outro(speakers[0], topic, transcript, agents)
-    if outro_line.strip():
-        storage.save_turn(episode_id, turn_index, speakers[0], outro_line)
-        turn_file = episode_dir / f"turn_{turn_index}.mp3"
-        text_to_speech(outro_line, agents[speakers[0]]["voice_id"], str(turn_file))
-        turn_audio_files.append(turn_file)
-        elapsed_seconds += AudioSegment.from_mp3(str(turn_file)).duration_seconds
-        storage.update_episode_elapsed(episode_id, elapsed_seconds)
+    # did we stop because the chunk budget ran out, while still short of the goal?
+    chunks_exhausted = chunk_index >= max_chunks and elapsed_seconds < target_seconds
 
-    pause = AudioSegment.silent(duration=500)
+    # only a short pause between chunks -- ElevenLabs' Text to Dialogue already
+    # paces the turns *within* a chunk naturally; we only need to smooth the seam
+    # between separate synthesis calls.
+    pause = AudioSegment.silent(duration=300)
     episode_audio = AudioSegment.empty()
-    for turn_file in turn_audio_files:
-        episode_audio = episode_audio + AudioSegment.from_mp3(str(turn_file)) + pause
+    for i, chunk_file in enumerate(chunk_audio_files):
+        if i > 0:
+            episode_audio += pause
+        episode_audio += AudioSegment.from_mp3(str(chunk_file))
 
     episode_audio.export(str(final_path), format="mp3")
 
-    for turn_file in turn_audio_files:
-        turn_file.unlink()
+    for chunk_file in chunk_audio_files:
+        chunk_file.unlink()
 
     relative_audio_path = final_path.relative_to(storage.DATA_DIR)
 
     shortfall_message = None
-    if attempts_exhausted:
+    if chunks_exhausted:
         shortfall_message = (
             f"Reached {elapsed_seconds / 60:.1f} of {target_minutes} target minutes "
-            f"after exhausting {attempts} turn-generation attempts."
+            f"after exhausting {chunk_index} chunk-generation attempts."
         )
         logger.warning("episode %s: %s", episode_id, shortfall_message)
 
