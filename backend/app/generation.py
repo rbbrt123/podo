@@ -17,6 +17,12 @@ from app import storage
 load_dotenv()
 
 logger = logging.getLogger(__name__)
+_log_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data")
+os.makedirs(_log_dir, exist_ok=True)
+_file_handler = logging.FileHandler(os.path.join(_log_dir, "generation.log"))
+_file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+logger.addHandler(_file_handler)
+logger.setLevel(logging.WARNING)
 
 anthropic_client = Anthropic()
 elevenlabs_client = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
@@ -191,8 +197,8 @@ def _validate_chunk_content(turns: list[dict], host_name: str, is_final_chunk: b
     for turn in turns:
         if turn["text"].strip().lower() == "placeholder":
             return (
-                f"a turn from {turn['speaker']} contained the literal text "
-                "\"placeholder\" instead of real dialogue."
+                f"a turn from {turn['speaker']} was missing real content — "
+                    "every turn must have full, specific dialogue, not a stand-in."
             )
     if is_final_chunk and turns and turns[-1]["speaker"] != host_name:
         return (
@@ -212,7 +218,7 @@ def generate_validated_chunk(
     chunk_size: int = 6,
     include_intros: bool = False,
     is_final_chunk: bool = False,
-    max_attempts: int = 3,
+    max_attempts: int = 5,
 ) -> list[dict]:
     """Generate a chunk, regenerating the whole thing (with the failure reason
     fed back into the prompt) if it comes back malformed, empty, or violates
