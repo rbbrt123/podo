@@ -15,7 +15,7 @@ Status values: `Not started` / `In progress` (link the branch/PR) /
 
 | # | Feature | Effort | Status | Depends on |
 |---|---|---|---|---|
-| 1 | [Episode-level extra instructions](#1-episode-level-extra-instructions) | Small | In progress (`feature/episode-instructions`) | — |
+| 1 | [Episode-level extra instructions](#1-episode-level-extra-instructions) | Small | Awaiting merge (`feature/episode-instructions`) | — |
 | 2 | [Deploying podo](#2-deploying-podo) | Small–Medium | Not started | — |
 | 3 | [Document-grounded episodes](#3-document-grounded-episodes) | Medium–Large | Not started | — |
 | 4 | [AI-assisted prompt generation](#4-ai-assisted-prompt-generation) | Medium | Not started | — |
