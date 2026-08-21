@@ -23,6 +23,7 @@ class CreateEpisodeRequest(BaseModel):
     agent_ids: list[int] = Field(min_length=2)
     intros: bool = True
     host_agent_id: int
+    instructions: str = ""
 
 
 class AgentRequest(BaseModel):
@@ -47,11 +48,11 @@ def create_episode(request: CreateEpisodeRequest, background_tasks: BackgroundTa
         raise HTTPException(status_code=400, detail=f"{host_agent['name']} is not eligible to host")
 
     episode_id = storage.create_episode(
-        request.title, request.topic, request.target_minutes, request.intros, request.host_agent_id
+        request.title, request.topic, request.target_minutes, request.intros, request.host_agent_id, request.instructions,
     )
     background_tasks.add_task(
         generation.generate_episode,
-        episode_id, request.topic, request.target_minutes, request.agent_ids, request.intros, request.host_agent_id,
+        episode_id, request.topic, request.target_minutes, request.agent_ids, request.intros, request.host_agent_id, request.instructions,
         )
     return {"id": episode_id, "status": "pending"}
 
