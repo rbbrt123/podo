@@ -18,7 +18,7 @@ def _download_audio(episode_id):
     return tmp.name
 
 
-def start_generation(title, topic, target_minutes, agent_ids, intros, host_agent_id):
+def start_generation(title, topic, target_minutes, agent_ids, intros, host_agent_id, instructions):
     """Kicks off generation and starts the polling timer."""
     if not topic.strip():
         return None, "Please enter a topic.", gr.skip(), gr.skip(), gr.Timer(active=False)
@@ -34,6 +34,7 @@ def start_generation(title, topic, target_minutes, agent_ids, intros, host_agent
         json={
             "title": title, "topic": topic, "target_minutes": int(target_minutes),
             "agent_ids": agent_ids, "intros": intros, "host_agent_id": host_agent_id,
+            "instructions": instructions,
         },
     )
     response.raise_for_status()
@@ -191,6 +192,11 @@ def build_app():
             host_dropdown = gr.Dropdown(label="Host", choices=[])
             target_minutes_input = gr.Slider(minimum=2, maximum=30, value=5, step=1, label="Length (minutes)")
             intros_checkbox = gr.Checkbox(label="Agents introduce themselves first", value=True)
+            instructions_input = gr.Textbox(
+                label="Extra instructions (optional)",
+                placeholder="e.g. explain things for a beginner, avoid jargon, spend extra time on X",
+                lines=2,
+            )
             generate_button = gr.Button("Generate episode")
             status_output = gr.Markdown()
             audio_output = gr.Audio(label="Episode audio")
@@ -201,7 +207,7 @@ def build_app():
 
         generate_button.click(
                 fn=start_generation,
-                inputs=[title_input, topic_input, target_minutes_input, agent_checkboxes, intros_checkbox, host_dropdown],
+                inputs=[title_input, topic_input, target_minutes_input, agent_checkboxes, intros_checkbox, host_dropdown, instructions_input],
                 outputs=[episode_id_state, status_output, audio_output, transcript_output, poll_timer],
                 show_progress="hidden",
             )
