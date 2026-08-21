@@ -22,6 +22,7 @@ def init_db():
                 target_minutes INTEGER NOT NULL,
                 intros INTEGER NOT NULL DEFAULT 1,
                 host_agent_id INTEGER REFERENCES agents(id),
+                instructions TEXT NOT NULL DEFAULT '',
                 elapsed_seconds REAL NOT NULL DEFAULT 0,
                 status TEXT NOT NULL DEFAULT 'pending',
                 error_message TEXT,
@@ -34,6 +35,8 @@ def init_db():
             conn.execute("ALTER TABLE episodes ADD COLUMN intros INTEGER NOT NULL DEFAULT 1")
         if "host_agent_id" not in existing_columns:
             conn.execute("ALTER TABLE episodes ADD COLUMN host_agent_id INTEGER REFERENCES agents(id)")
+        if "instructions" not in existing_columns:
+            conn.execute("ALTER TABLE episodes ADD COLUMN instructions TEXT NOT NULL DEFAULT ''")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS turns (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -60,12 +63,12 @@ def init_db():
             conn.execute("UPDATE agents SET is_host = 1 WHERE is_builtin = 1 AND name = 'Nova'")
 
 
-def create_episode(title: str, topic: str, target_minutes: int, intros: bool, host_agent_id: int) -> int:
+def create_episode(title: str, topic: str, target_minutes: int, intros: bool, host_agent_id: int, instructions: str = "") -> int:
     resolved_title = title.strip() or topic
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.execute(
-            "INSERT INTO episodes (title, topic, target_minutes, intros, host_agent_id, status, created_at) VALUES (?, ?, ?, ?, ?, 'pending', ?)",
-            (resolved_title, topic, target_minutes, int(intros), host_agent_id, datetime.now(timezone.utc).isoformat()),
+            "INSERT INTO episodes (title, topic, target_minutes, intros, host_agent_id, instructions, status, created_at) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)",
+            (resolved_title, topic, target_minutes, int(intros), host_agent_id, instructions, datetime.now(timezone.utc).isoformat()),
         )
         return cursor.lastrowid
 
