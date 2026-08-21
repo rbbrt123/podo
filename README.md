@@ -5,12 +5,24 @@ personas hold a spoken conversation about a topic you choose, generated
 end-to-end with Claude (dialogue) and ElevenLabs (voice).
 
 **Status: early / actively in development.** Currently working:
-- Any number of personas can hold a back-and-forth conversation, with
-  the model itself deciding who speaks next each turn
+- Any number of personas hold a back-and-forth conversation; one is
+  designated **host** each episode, opening/closing it and reclaiming
+  control from guests within a capped window — guests can still riff
+  and pick who speaks next in between
 - Each persona gets a distinct AI voice
-- Turns are stitched into one playable episode
+- Dialogue is generated and synthesized in batched chunks of several
+  turns rather than one turn at a time, with a chunk's audio
+  synthesizing while the next chunk's dialogue is generated —
+  meaningfully faster than a strict per-turn loop, and turns are no
+  longer silently dropped or misattributed
+- Episode length is a target duration in minutes, not a turn count
+- Optional self-introductions at the start of an episode
+- An optional free-text "extra instructions" field on episode
+  creation, folded into every chunk's prompt, for steering the
+  conversation beyond just its topic
 - A FastAPI backend generates episodes in the background and a Gradio
-  web UI lets you kick them off and browse a library of past episodes
+  web UI lets you kick them off and browse, replay, or delete past
+  episodes
 - Personas ("agents") are user-created and editable in an **Agent
   Lab** tab — a name, a prompt, and a voice picked from your
   ElevenLabs voice library, with instant preview playback of each
@@ -18,8 +30,8 @@ end-to-end with Claude (dialogue) and ElevenLabs (voice).
   create yourself is fully editable, and you can duplicate a built-in
   into an editable copy to start from
 
-**Planned next:** a listener knowledge-level parameter, so the
-conversation's depth and vocabulary calibrate to what you already know.
+**Planned next:** getting a personal instance reachable outside
+localhost. See [ROADMAP.md](ROADMAP.md).
 
 See [ROADMAP.md](ROADMAP.md) for the full prioritized feature plan
 and the reasoning behind the order.
@@ -37,12 +49,14 @@ The app is split into two services:
   each turn with ElevenLabs, stitches the turns into a single MP3, and
   persists episodes/turns/agents in a SQLite database.
 - **`frontend/`** — a Gradio app with three tabs: **Generate** (pick
-  at least two agents, submit a topic and turn count, watch status
-  update, play the finished episode), **Library** (browse, replay, and
-  delete past episodes), and **Agent Lab** (create/edit/delete agents
-  — a name, a prompt, and a voice chosen from a dropdown backed by
-  `GET /voices`, with click-to-preview audio for each voice). It talks
-  to the backend purely over HTTP.
+  at least two agents and a host, submit a topic, a target length in
+  minutes, and optional extra instructions, watch status update, play
+  the finished episode), **Library** (browse, replay, and delete past
+  episodes), and
+  **Agent Lab** (create/edit/delete agents — a name, a prompt, and a
+  voice chosen from a dropdown backed by `GET /voices`, with
+  click-to-preview audio for each voice). It talks to the backend
+  purely over HTTP.
 
 Generated data (the SQLite DB and per-episode MP3s) lives under
 `data/`, shared between the backend container and your host via a
@@ -80,9 +94,10 @@ This builds and starts both services:
 - Backend on [http://localhost:8000](http://localhost:8000)
 - Frontend on [http://localhost:7860](http://localhost:7860)
 
-Open the frontend URL in your browser, pick at least two agents,
-enter a topic and number of turns on the **Generate** tab, and hit
-"Generate episode". Generated episodes and the SQLite database are
+Open the frontend URL in your browser, pick at least two agents and a
+host, enter a topic and a target length in minutes on the
+**Generate** tab, and hit "Generate episode". Generated episodes and
+the SQLite database are
 written to `./data` on your host (mounted into the backend container)
 and persist across restarts.
 

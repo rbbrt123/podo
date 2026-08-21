@@ -49,6 +49,7 @@ def _build_chunk_system_prompt(
         guest_cap: int,
         include_intros: bool = False,
         is_final_chunk: bool = False,
+        instructions: str = "",
 ) -> str:
     persona_blocks = "\n\n".join(
         f"### {name}\n{agent['prompt']}" for name, agent in agents.items()
@@ -76,6 +77,8 @@ def _build_chunk_system_prompt(
         + "[laughs], [sighs], [curious], [excited], [interrupting]. Use them only where "
         + "they'd genuinely happen, not on every line."
     )
+    if instructions.strip():
+        prompt += f"\n\nAdditional instructions from the show's producer: {instructions.strip()}"
     if include_intros:
         prompt += (
             f"\n\nThis is the very start of the episode. Before the real discussion begins, "
@@ -110,6 +113,7 @@ def generate_chunk(
         include_intros: bool = False,
         is_final_chunk: bool = False,
         extra_instruction: str | None = None,
+        instructions: str = "",
 ) -> list[dict]:
     """Generate the next `chunk_size` turns of dialogue in a single call.
 
@@ -119,7 +123,7 @@ def generate_chunk(
     the same shape.
     """
     system_prompt = _build_chunk_system_prompt(
-        topic, agents, host_name, guest_cap, include_intros, is_final_chunk=is_final_chunk
+        topic, agents, host_name, guest_cap, include_intros, is_final_chunk=is_final_chunk, instructions=instructions,
     )
     conversation_so_far = _format_transcript_for_chunk(transcript)
 
@@ -219,6 +223,7 @@ def generate_validated_chunk(
     include_intros: bool = False,
     is_final_chunk: bool = False,
     max_attempts: int = 5,
+    instructions: str = "",
 ) -> list[dict]:
     """Generate a chunk, regenerating the whole thing (with the failure reason
     fed back into the prompt) if it comes back malformed, empty, or violates
@@ -237,6 +242,7 @@ def generate_validated_chunk(
                 topic, agents, transcript, host_name, guest_cap,
                 chunk_size=chunk_size, include_intros=include_intros,
                 is_final_chunk=is_final_chunk, extra_instruction=extra_instruction,
+                instructions=instructions,
             )
         except (ValueError, json.JSONDecodeError, KeyError) as exc:
             failure_reason = f"response could not be parsed ({exc})"
@@ -345,15 +351,15 @@ def _plan_next_chunk(
     return DEFAULT_CHUNK_SIZE, False
 
 
-def generate_episode(episode_id: int, topic: str, target_minutes: int, agent_ids: list[int], intros: bool, host_agent_id: int) -> None:
+def generate_episode(episode_id: int, topic: str, target_minutes: int, agent_ids: list[int], intros: bool, host_agent_id: int, instructions: str = "") -> None:
     storage.update_episode_status(episode_id, "generating")
     try:
-        _run_generation(episode_id, topic, target_minutes, agent_ids, intros, host_agent_id)
+        _run_generation(episode_id, topic, target_minutes, agent_ids, intros, host_agent_id, instructions)
     except Exception as exc:
         storage.update_episode_status(episode_id, "failed", error_message=str(exc))
 
 
-def _run_generation(episode_id: int, topic: str, target_minutes: int, agent_ids: list[int], intros: bool, host_agent_id: int) -> None:
+def _run_generation(episode_id: int, topic: str, target_minutes: int, agent_ids: list[int], intros: bool, host_agent_id: int, instructions: str = "") -> None:
     agents = {}
     for agent_id in agent_ids:
         agent = storage.get_agent(agent_id)
@@ -379,6 +385,7 @@ def _run_generation(episode_id: int, topic: str, target_minutes: int, agent_ids:
         chunk_size=chunk_size,
         include_intros=intros,
         is_final_chunk=is_final_chunk,
+        instructions=instructions,
     )
 
     with ThreadPoolExecutor(max_workers=1) as executor:
@@ -400,6 +407,7 @@ def _run_generation(episode_id: int, topic: str, target_minutes: int, agent_ids:
                     chunk_size=next_chunk_size,
                     include_intros=False,
                     is_final_chunk=next_is_final,
+                    instructions=instructions,
                 )
             synth_future.result()
             chunk_duration = AudioSegment.from_mp3(str(chunk_file)).duration_seconds
