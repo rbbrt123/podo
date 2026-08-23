@@ -15,5 +15,5 @@ provider "azurerm" {
 
 resource "azurerm_resource_group" "podo" {
   name     = "podo-rg"
-  location = "northeurope"
+  location = "denmarkeast"
 }
