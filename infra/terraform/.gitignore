@@ -1,0 +1,24 @@
+# Local Terraform working directory and provider plugin binaries -
+# machine-specific, and the plugins are large. Redownloaded by `terraform init`.
+.terraform/
+
+# State files: the record of what Terraform believes exists in Azure right
+# now, including real resource IDs. Never commit this - it can contain
+# sensitive values, and two people applying against out-of-sync copies is
+# exactly the kind of conflict Terraform is supposed to prevent.
+*.tfstate
+*.tfstate.*
+
+# Crash logs, if Terraform ever crashes mid-run.
+crash.log
+crash.*.log
+
+# Variable files often hold secrets (API keys, etc.) - never commit these.
+*.tfvars
+*.tfvars.json
+
+# Local overrides some people use for testing - not meant to be shared.
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
