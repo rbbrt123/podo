@@ -98,3 +98,23 @@ the specific violation fed back into the retry prompt
 runtime reassignment. Functionally the same guarantee (the host can't be
 absent for more than the cap), enforced at a different point in the
 pipeline because the pipeline's shape changed underneath it.
+
+## Addendum (2026-08-25): cap widened from 2 to 4
+
+In practice, a cap of 2 made the host's reappearance feel forced —
+`_validate_host_cap()` rejects and regenerates a whole chunk whenever the
+host doesn't reappear by the third non-host turn, which pushed the model
+toward inserting the host at a fixed cadence rather than at a natural
+break in the conversation, regardless of whether a guest exchange was
+still going somewhere.
+
+`HOST_GUEST_CAP` is widened to 4, and the prompt wording changed from a
+flat rule ("must speak again within every N turns") to guidance that a
+host waits for a natural point to step back in — end of a thought, a
+lull, a good follow-up opening — rather than cutting in mid-exchange. The
+validation guarantee itself (host can't be absent for more than the cap)
+is kept as a backstop against the original problem this ADR solved
+(unsupervised guests drifting into an off-topic tangent); only the
+window size and the framing given to the model changed. If topic drift
+reappears in practice with the wider window, that's a signal to tighten
+the cap back down rather than remove the mechanism.
