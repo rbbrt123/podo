@@ -27,10 +27,10 @@ logger.setLevel(logging.WARNING)
 anthropic_client = Anthropic()
 elevenlabs_client = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
 
-HOST_GUEST_CAP  = 2  # ADR-0001: host must reclaim control within this many consecutive guest turns
+HOST_GUEST_CAP  = 4  # ADR-0001 (widened, see addendum): host must reclaim control within this many consecutive guest turns
 DEFAULT_CHUNK_SIZE = 6
 MIN_FINAL_CHUNK_SIZE = 2
-DEFAULT_SECONDS_PER_TURN_ESTIMATE = 12.0  # rough guess before we have any real data for this episode
+DEFAULT_SECONDS_PER_TURN_ESTIMATE = 19.5  # measured average across 3 real episodes (18.5-20.4s/turn); see generation.py history for episode 2/8/10 data
 MIN_PLAUSIBLE_SECONDS_PER_TURN = 2.0      # backstop only: guards against a runaway loop if a chunk's audio comes back implausibly short
 
 
@@ -62,11 +62,14 @@ def _build_chunk_system_prompt(
         + persona_blocks
         + f"\n\nThe topic is: {topic}\n\n"
         + f"{host_name} is the HOST of this episode: driving the conversation, keeping it "
-        + "on topic, and making sure every guest gets a turn. "
+        + "on topic, and making sure every guest gets a turn. A good host lets guests riff "
+        + "and go back-and-forth with each other for a while, and steps back in at a natural "
+        + "point — the end of a thought, a lull, a good opening for a follow-up question — "
+        + "not abruptly mid-exchange just to reclaim the mic. "
         + f"{', '.join(other_names)} {'is' if len(other_names) == 1 else 'are'} guest(s) — "
         + "guests can riff and respond to each other directly, but "
-        + f"{host_name} must speak again at least once within every {guest_cap} consecutive "
-        + "turns from other speakers, to steer the conversation and ask follow-up questions.\n\n"
+        + f"{host_name} should still speak again at least once within every {guest_cap} consecutive "
+        + "turns from other speakers, so the conversation doesn't wander too far without them.\n\n"
         + "This is a real conversation, not a lecture. Vary turn length naturally - "
         + "sometimes a short reaction ('wait, really?', 'Right, exactly.'), sometimes a "
         + "longer explanation. It's fine to just react without adding new information. "
@@ -409,7 +412,14 @@ def _run_generation(episode_id: int, topic: str, target_minutes: int, agent_ids:
                     is_final_chunk=next_is_final,
                     instructions=instructions,
                 )
-            synth_future.result()
+            try:
+                synth_future.result()
+            except Exception:
+                logger.error(
+                    "episode %s chunk %s synthesis failed for turns: %s",
+                    episode_id, chunk_index, turns,
+                )
+                raise
             chunk_duration = AudioSegment.from_mp3(str(chunk_file)).duration_seconds
 
             for turn in turns:
