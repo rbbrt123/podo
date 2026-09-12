@@ -38,5 +38,49 @@ fetch('http://localhost:8000/agents')
     }
   })
   .catch(error => {
-    document.getElementById('create-error').textcontent = 'Error loading agents: ' + error;
+    document.getElementById('create-error').textContent = 'Error loading agents: ' + error;
   });
+
+
+document.getElementById('create-form').addEventListener('submit', event => {
+  event.preventDefault();
+
+  const topic = document.getElementById('topic-input').value;
+  const targetMinutes = Number(document.getElementById('minutes-input').value);
+  const hostAgentId = Number(document.getElementById('host-select').value);
+
+  const checkedBoxes = document.querySelectorAll('#agent-checkboxes input[type="checkbox"]:checked');
+  const agentIds = Array.from(checkedBoxes).map(checkbox => Number(checkbox.value));
+
+  const errorBox = document.getElementById('create-error');
+  const statusBox = document.getElementById('create-status');
+  errorBox.textContent = '';
+  statusBox.textContent = '';
+
+  if (agentIds.length < 2) {
+    errorBox.textContent = 'Pick at least two agents.';
+    return;
+  }
+  if (!agentIds.includes(hostAgentId)) {
+    errorBox.textContent = 'The host must be one of the selected agents.';
+    return;
+  }
+
+  fetch('http://localhost:8000/episodes', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      topic: topic,
+      target_minutes: targetMinutes,
+      agent_ids: agentIds,
+      host_agent_id: hostAgentId,
+    }),
+  })
+    .then(response => response.json())
+    .then(data => {
+      statusBox.textContent = `Episode #${data.id} created - status: ${data.status}`;
+    })
+    .catch(error => {
+      errorBox.textContent = 'Error creating episode: ' + error;
+    });
+});
