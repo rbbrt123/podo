@@ -26,3 +26,16 @@ h1 {
 #error {
   color: #b00020;
 }
+
+form label {
+  display: block;
+  margin-bottom: 0.75rem;
+}
+
+fieldset {
+  margin-bottom: 0.75rem;
+}
+
+button {
+  padding: 0.5rem 1rem;
+}

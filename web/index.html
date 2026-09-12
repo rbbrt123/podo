@@ -7,6 +7,33 @@
 </head>
 <body>
     <h1>Podo</h1>
+
+    <h2>Create Episode</h2>
+    <form id="create-form">
+        <label>
+            Topic:
+            <input type="text" id="topic-input" required>
+        </label>
+
+        <label>
+            Target length (minutes):
+            <input type="number" id="minutes-input" value="5" min="2" max="30" required>
+        </label>
+
+        <fieldset>
+            <legend>Agents (pick at least two)</legend>
+            <div id="agent-checkboxes"></div>
+        </fieldset>
+
+        <label>
+            Host:
+            <select id="host-select"></select>
+        </label>
+
+        <button type="submit">Generate episode</button>
+    </form>
+    <p id="create-error"></p>
+    
     <h2>Episodes</h2>
     <p id="error"></p>
     <ul id="episode-list"></ul>
