@@ -1,8 +1,13 @@
 fetch('http://localhost:8000/episodes')
   .then(response => response.json())
-  .then(data => {
-    document.getElementById('output').textContent = JSON.stringify(data, null, 2);
+  .then(episodes => {
+    const list = document.getElementById('episode-list');
+    for (const episode of episodes) {
+      const item = document.createElement('li');
+      item.textContent = `${episode.title} — ${episode.status} (${episode.target_minutes} min)`;
+      list.appendChild(item);
+    }
   })
   .catch(error => {
-    document.getElementById('output').textContent = 'Error: ' + error;
+    document.getElementById('error').textContent = 'Error: ' + error;
   });

@@ -10,10 +10,19 @@ h1 {
   font-size: 1.5rem;
 }
 
-pre {
+#episode-list {
+  list-style: none;
+  padding: 0;
+}
+
+#episode-list li {
+  padding: 0.75rem 1rem;
+  margin-bottom: 0.5rem;
   background: #f4f4f4;
   border: 1px solid #ddd;
   border-radius: 6px;
-  padding: 1rem;
-  overflow-x: auto;
+}
+
+#error {
+  color: #b00020;
 }
