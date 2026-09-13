@@ -68,3 +68,19 @@ button {
 .tab-panel.active {
   display: block;
 }
+
+.hidden {
+  display: none;
+}
+
+#episode-audio {
+  width: 100%;
+  margin-top: 1rem;
+}
+
+#episode-transcript {
+  width: 100%;
+  margin-top: 1rem;
+  font-family: inherit;
+  box-sizing: border-box;
+}

@@ -1,3 +1,5 @@
+const BACKEND_URL = 'http://localhost:8000';
+
 document.querySelectorAll('.tab-button').forEach(button => {
   button.addEventListener('click', () => {
     document.querySelectorAll('.tab-button').forEach(b => b.classList.remove('active'));
@@ -9,7 +11,7 @@ document.querySelectorAll('.tab-button').forEach(button => {
 });
 
 
-fetch('http://localhost:8000/episodes')
+fetch(`${BACKEND_URL}/episodes`)
   .then(response => response.json())
   .then(episodes => {
     const list = document.getElementById('episode-list');
@@ -24,7 +26,7 @@ fetch('http://localhost:8000/episodes')
   });
 
   
-fetch('http://localhost:8000/agents')
+fetch(`${BACKEND_URL}/agents`)
   .then(response => response.json())
   .then(agents => {
     const checkboxContainer = document.getElementById('agent-checkboxes');
@@ -53,6 +55,43 @@ fetch('http://localhost:8000/agents')
   });
 
 
+let pollTimer = null;
+
+function pollEpisode(episodeId) {
+  fetch(`${BACKEND_URL}/episodes/${episodeId}`)
+    .then(response => response.json())
+    .then(episode => {
+      const statusBox = document.getElementById('create-status');
+      const audio = document.getElementById('episode-audio');
+      const transcriptBox = document.getElementById('episode-transcript');
+      const elapsedMin = episode.elapsed_seconds / 60;
+
+      if (episode.status === 'complete') {
+        clearInterval(pollTimer);
+        pollTimer = null;
+        let statusText = `Episode #${episodeId}: done! (${elapsedMin.toFixed(1)} min)`;
+        if (episode.error_message) {
+            statusText = `Episode #${episodeId}: done, but short — ${elapsedMin.toFixed(1)}/${episode.target_minutes} min. ${episode.error_message}`;
+          }
+        statusBox.textContent = statusText;
+        audio.src = `${BACKEND_URL}/episodes/${episodeId}/audio`;
+        audio.classList.remove('hidden');
+        transcriptBox.value = episode.turns.map(t => `${t.speaker}: ${t.text}`).join('\n\n');
+        transcriptBox.classList.remove('hidden');
+      } else if (episode.status === 'failed') {
+        clearInterval(pollTimer);
+        pollTimer = null;
+        statusBox.textContent = `Episode #${episodeId} failed: ${episode.error_message}`;
+      } else {
+        statusBox.textContent = `Episode #${episodeId}: ${episode.status}... (${elapsedMin.toFixed(1)}/${episode.target_minutes} min)`;
+      }
+    })
+    .catch(error => {
+      document.getElementById('create-error').textContent = 'Error polling episode: ' + error;
+    });
+}
+
+
 document.getElementById('create-form').addEventListener('submit', event => {
   event.preventDefault();
 
@@ -68,8 +107,15 @@ document.getElementById('create-form').addEventListener('submit', event => {
 
   const errorBox = document.getElementById('create-error');
   const statusBox = document.getElementById('create-status');
+  const audio = document.getElementById('episode-audio');
+  const transcriptBox = document.getElementById('episode-transcript');
+
   errorBox.textContent = '';
   statusBox.textContent = '';
+  audio.classList.add('hidden');
+  audio.removeAttribute('src');
+  transcriptBox.classList.add('hidden');
+  transcriptBox.value = '';
 
   if (agentIds.length < 2) {
     errorBox.textContent = 'Pick at least two agents.';
@@ -80,7 +126,7 @@ document.getElementById('create-form').addEventListener('submit', event => {
     return;
   }
 
-  fetch('http://localhost:8000/episodes', {
+  fetch(`${BACKEND_URL}/episodes`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -95,7 +141,12 @@ document.getElementById('create-form').addEventListener('submit', event => {
   })
     .then(response => response.json())
     .then(data => {
-      statusBox.textContent = `Episode #${data.id} created - status: ${data.status}`;
+      statusBox.textContent = `Episode #${data.id}: pending...`;
+
+      if (pollTimer) {
+        clearInterval(pollTimer);
+      }
+      pollTimer = setInterval(() => pollEpisode(data.id), 2000);
     })
     .catch(error => {
       errorBox.textContent = 'Error creating episode: ' + error;
