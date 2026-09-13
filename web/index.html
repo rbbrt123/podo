@@ -8,36 +8,66 @@
 <body>
     <h1>Podo</h1>
 
-    <h2>Create Episode</h2>
-    <form id="create-form">
-        <label>
-            Topic:
-            <input type="text" id="topic-input" required>
-        </label>
+    <nav id="tabs">
+        <button class="tab-button active" data-tab="generate">Generate</button>
+        <button class="tab-button" data-tab="library">Library</button>
+        <button class="tab-button" data-tab="agent-lab">Agent Lab</button>
+    </nav>
 
-        <label>
-            Target length (minutes):
-            <input type="number" id="minutes-input" value="5" min="2" max="30" required>
-        </label>
+    <section id="tab-generate" class="tab-panel active">
+        <h2>Create Episode</h2>
+        <form id="create-form">
+            <label>
+                Episode title (optional):
+                <input type="text" id="title-input">
+            </label>
 
-        <fieldset>
-            <legend>Agents (pick at least two)</legend>
-            <div id="agent-checkboxes"></div>
-        </fieldset>
+            <label>
+                Topic:
+                <input type="text" id="topic-input" required>
+            </label>
 
-        <label>
-            Host:
-            <select id="host-select"></select>
-        </label>
+            <label>
+                Target length (minutes):
+                <input type="number" id="minutes-input" value="5" min="2" max="30" required>
+            </label>
 
-        <button type="submit">Generate episode</button>
-    </form>
-    <p id="create-error"></p>
-    <p id="create-status"></p>
+            <fieldset>
+                <legend>Agents (pick at least two)</legend>
+                <div id="agent-checkboxes"></div>
+            </fieldset>
+
+            <label>
+                Host:
+                <select id="host-select"></select>
+            </label>
+
+            <label>
+                <input type="checkbox" id="intros-input" checked>
+                Agents introduce themselves first
+            </label>
+
+            <label>
+                Extra instructions (optional):
+                <textarea id="instructions-input" rows="2" placeholder="e.g. explain things for a beginner, avoid jargon, spend extra time on X"></textarea>
+            </label>
+
+            <button type="submit">Generate episode</button>
+        </form>
+        <p id="create-error"></p>
+        <p id="create-status"></p>
+    </section>
     
-    <h2>Episodes</h2>
-    <p id="error"></p>
-    <ul id="episode-list"></ul>
+    <section id="tab-library" class="tab-panel">
+        <h2>Episodes</h2>
+        <p id="error"></p>
+        <ul id="episode-list"></ul>
+    </section>
+
+    <section id="tab-agent-lab" class="tab-panel">
+        <h2>Agent Lab</h2>
+        <p>Coming in a later step.</p>
+    </section>
 
     <script src="script.js"></script>
 </body>

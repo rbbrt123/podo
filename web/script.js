@@ -1,3 +1,14 @@
+document.querySelectorAll('.tab-button').forEach(button => {
+  button.addEventListener('click', () => {
+    document.querySelectorAll('.tab-button').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+
+    button.classList.add('active');
+    document.getElementById(`tab-${button.dataset.tab}`).classList.add('active');
+  });
+});
+
+
 fetch('http://localhost:8000/episodes')
   .then(response => response.json())
   .then(episodes => {
@@ -45,9 +56,12 @@ fetch('http://localhost:8000/agents')
 document.getElementById('create-form').addEventListener('submit', event => {
   event.preventDefault();
 
+  const title =document.getElementById('title-input').value;
   const topic = document.getElementById('topic-input').value;
   const targetMinutes = Number(document.getElementById('minutes-input').value);
   const hostAgentId = Number(document.getElementById('host-select').value);
+  const intros = document.getElementById('intros-input').checked;
+  const instructions = document.getElementById('instructions-input').value;
 
   const checkedBoxes = document.querySelectorAll('#agent-checkboxes input[type="checkbox"]:checked');
   const agentIds = Array.from(checkedBoxes).map(checkbox => Number(checkbox.value));
@@ -70,10 +84,13 @@ document.getElementById('create-form').addEventListener('submit', event => {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
+      title: title,
       topic: topic,
       target_minutes: targetMinutes,
       agent_ids: agentIds,
+      intros: intros,
       host_agent_id: hostAgentId,
+      instructions: instructions,
     }),
   })
     .then(response => response.json())
