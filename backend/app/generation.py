@@ -4,6 +4,7 @@ import logging
 import math
 import os
 import re
+import subprocess
 from concurrent.futures import ThreadPoolExecutor
 
 from anthropic import Anthropic
@@ -321,6 +322,29 @@ def synthesize_chunk(turns: list[dict], agents: dict, filename: str) -> None:
     combined_audio.export(filename, format="mp3") 
 
 
+def transcode_chunk_to_fmp4(mp3_path: str, output_path: str) -> None:
+    """Transcodes one chunk's MP3 into a standalone fragmented MP4/AAC segment
+    -- carries its own init segment (ftyp+moov), so it can be appended on the
+    frontend via SourceBuffer in 'sequence' mode without depending on a shared
+    timeline (see ADR-0002)."""
+    result = subprocess.run(
+        [
+            "ffmpeg", "-y",
+            "-i", mp3_path,
+            "-c:a", "aac",
+            "-movflags", "frag_keyframe+empty_moov+default_base_moof",
+            "-f", "mp4",
+            output_path,
+        ],
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"ffmpeg transcode failed (exit {result.returncode}): "
+            f"{result.stderr.decode(errors='replace')}"
+        )
+
+
 def _plan_next_chunk(
         elapsed_seconds: float,
         target_seconds: float,
@@ -421,6 +445,9 @@ def _run_generation(episode_id: int, topic: str, target_minutes: int, agent_ids:
                 )
                 raise
             chunk_duration = AudioSegment.from_mp3(str(chunk_file)).duration_seconds
+
+            fmp4_file = episode_dir / f"chunk_{chunk_index}.m4s"
+            transcode_chunk_to_fmp4(str(chunk_file), str(fmp4_file))
 
             for turn in turns:
                 storage.save_turn(episode_id, turn_index, turn["speaker"], turn["text"])
