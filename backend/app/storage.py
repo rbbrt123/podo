@@ -134,6 +134,23 @@ def episode_audio_path(episode_id: int) -> Path:
     return episode_dir / "episode.mp3"
 
 
+def list_ready_chunks(episode_id: int) -> list[int]:
+    """Returns the indices of chunks whose fragmented-MP4 audio has finished
+    transcoding, based on which chunk_N.m4s files exist on disk."""
+    episode_dir = EPISODES_DIR/str(episode_id)
+    if not episode_dir.exists():
+        return []
+    indices = []
+    for path in episode_dir.glob("chunk_*.m4s"): #loop over all the filenames that look like chunk_something.m4s
+        index = int(path.stem.removeprefix("chunk_"))
+        indices.append(index)
+    return sorted(indices) #list with chunk integers that are ready to be played
+
+
+def chunk_audio_path(episode_id: int, chunk_index: int) -> Path:
+    return EPISODES_DIR / str(episode_id) / f"chunk_{chunk_index}.m4s"
+
+
 def create_agent(name: str, prompt: str, voice_id: str, is_builtin: bool = False, is_host: bool = False) -> int:
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.execute(
