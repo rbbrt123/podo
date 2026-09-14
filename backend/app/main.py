@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
@@ -14,6 +15,13 @@ async def lifespan(app: FastAPI):
     yield
 
 app = FastAPI(lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:8080"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 class CreateEpisodeRequest(BaseModel):
@@ -76,6 +84,25 @@ def get_episode_audio(episode_id: int):
     if episode is None or episode["audio_path"] is None:
         raise HTTPException(status_code=404, detail="Audio not available")
     return FileResponse(storage.DATA_DIR / episode["audio_path"], media_type="audio/mpeg")
+
+
+@app.get("/episodes/{episode_id}/chunks")
+def list_episode_chunks(episode_id: int):
+    episode = storage.get_episode(episode_id)
+    if episode is None:
+        raise HTTPException(status_code=404, detail="Episode not found")
+    return {"ready_chunks": storage.list_ready_chunks(episode_id)}
+
+
+@app.get("/episodes/{episode_id}/chunks/{chunk_index}")
+def get_episode_chunk(episode_id: int, chunk_index: int):
+    episode = storage.get_episode(episode_id)
+    if episode is None:
+        raise HTTPException(status_code=404, detail="Episode not found")
+    chunk_path = storage.chunk_audio_path(episode_id, chunk_index)
+    if not chunk_path.exists():
+        raise HTTPException(status_code=404, detail="Chunk not ready")
+    return FileResponse(chunk_path, media_type="audio/mp4")
 
 
 @app.delete("/episodes/{episode_id}")
